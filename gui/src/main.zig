@@ -75,7 +75,15 @@ fn nchittest(hwnd: w.HWND, lp: w.LPARAM) w.LRESULT {
     const x: f32 = @floatFromInt(pt.x);
     const y: f32 = @floatFromInt(pt.y);
     const width: f32 = @as(f32, @floatFromInt(1360)) * g_scale;
-    if (y < 54 * g_scale and x < width - 110 * g_scale) return w.HTCAPTION;
+    if (y < 54 * g_scale) {
+        // the skin button lives inside the drag strip; it still needs real clicks
+        const sb_x0 = @as(f32, @floatFromInt(1360 - 164)) * g_scale;
+        const sb_x1 = @as(f32, @floatFromInt(1360 - 128)) * g_scale;
+        const sb_y0 = 12 * g_scale;
+        const sb_y1 = 40 * g_scale;
+        if (x >= sb_x0 and x < sb_x1 and y >= sb_y0 and y < sb_y1) return w.HTCLIENT;
+        if (x < width - 110 * g_scale) return w.HTCAPTION;
+    }
     return w.HTCLIENT;
 }
 
