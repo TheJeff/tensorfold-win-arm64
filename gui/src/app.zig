@@ -454,7 +454,7 @@ pub const App = struct {
     fn loadRect(app: *const App, i: usize) Rect {
         const c = app.cardRect(i);
         const h: f32 = if (c.h >= 84) 24 else 20;
-        return .{ .x = c.x + 12, .y = c.y + c.h - h - 5, .w = 100, .h = h };
+        return .{ .x = c.x + 12, .y = c.y + c.h - h - 10, .w = 100, .h = h };
     }
 
     fn fieldRect(i: usize) Rect {
@@ -886,7 +886,11 @@ pub const App = struct {
         p.panel(24, 656, 308, 192, 10, theme.pal.panel, theme.pal.panel_sunk, theme.pal.line, null);
         app.label(p, "LAUNCH SETTINGS", 38, 666);
         if (app.currentModel()) |m| {
-            p.textRight(util.basename(m.dir), .ui_small, theme.pal.text_mute, 330, 666);
+            // sit the folder name after the section label, using the rest of the
+            // header row instead of right-aligning it into the label
+            const label_w = p.textWidth("LAUNCH SETTINGS", .ui_label, 1);
+            const name_x = 38 + label_w + 16;
+            p.textFit(util.basename(m.dir), .ui_small, theme.pal.text_mute, name_x, 666, 330 - name_x);
         }
 
         const field_names = [_][]const u8{ "PORT", "LANES", "CONTEXT", "CACHE GiB" };

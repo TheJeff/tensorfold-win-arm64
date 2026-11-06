@@ -338,11 +338,17 @@ pub const Paint = struct {
     }
 
     pub fn textRight(p: *Paint, str: []const u8, f: theme.Font, c: Color, right_x: f32, y: f32) void {
-        p.text(str, f, c, right_x - p.textWidth(str, f, 0), y);
+        // GDI adds the tracking extra after every glyph, including the last, so
+        // a width measured at tracking 0 under-reports tracked text
+        const tr = theme.fontSpec(f).tracking;
+        const tw = p.textWidth(str, f, tr);
+        p.text(str, f, c, right_x - (tw - @as(f32, @floatFromInt(tr))), y);
     }
 
     pub fn textCentered(p: *Paint, str: []const u8, f: theme.Font, c: Color, cx: f32, y: f32) void {
-        p.text(str, f, c, cx - p.textWidth(str, f, 0) / 2, y);
+        const tr = theme.fontSpec(f).tracking;
+        const tw = p.textWidth(str, f, tr);
+        p.text(str, f, c, cx - (tw - @as(f32, @floatFromInt(tr))) / 2, y);
     }
 
     /// Draws `str` inside `max_w`, cutting it with an ellipsis when it does not fit.
