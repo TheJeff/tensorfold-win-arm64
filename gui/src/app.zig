@@ -459,8 +459,8 @@ pub const App = struct {
 
     fn fieldRect(i: usize) Rect {
         const x = 24 + @as(f32, @floatFromInt(i % 2)) * 154;
-        const y = 690 + @as(f32, @floatFromInt(i / 2)) * 52;
-        return .{ .x = x, .y = y, .w = 146, .h = 42 };
+        const y = 688 + @as(f32, @floatFromInt(i / 2)) * 64;
+        return .{ .x = x, .y = y, .w = 146, .h = 56 };
     }
 
     fn settingsBtn() Rect {
@@ -901,13 +901,14 @@ pub const App = struct {
             const field = edit_fields[i];
             const active = app.editing != null and app.editing.? == field;
             const hot = app.hover == edit_actions[i];
-            p.textTracking(field_names[i], .ui_label, theme.pal.text_mute, fr.x + 10, fr.y - 12, 1);
-            p.panel(fr.x, fr.y, fr.w, fr.h, 8, if (active) theme.pal.panel_hi else theme.pal.panel_sunk, theme.pal.panel, if (active) theme.alpha(theme.pal.violet, 230) else if (hot) theme.alpha(theme.pal.violet, 120) else theme.pal.line, null);
+            p.panel(fr.x, fr.y, fr.w, fr.h, 10, if (active) theme.pal.panel_hi else theme.pal.panel, theme.pal.panel_sunk, if (active) theme.alpha(theme.pal.violet, 230) else if (hot) theme.alpha(theme.pal.violet, 120) else theme.pal.line, null);
+            // label inside the field, top-left, with room under it for the value
+            p.textTracking(field_names[i], .ui_label, theme.pal.text_mute, fr.x + 12, fr.y + 9, 1);
 
             if (active) {
-                p.text(app.edit_buf[0..app.edit_len], .mono_bold, theme.pal.text, fr.x + 12, fr.y + 14);
+                p.text(app.edit_buf[0..app.edit_len], .mono_bold, theme.pal.text, fr.x + 12, fr.y + 27);
                 const caret_x = fr.x + 12 + p.textWidth(app.edit_buf[0..app.edit_len], .mono_bold, 0) + 2;
-                p.line(caret_x, fr.y + 11, caret_x, fr.y + 31, theme.pal.violet, 2);
+                p.line(caret_x, fr.y + 24, caret_x, fr.y + 44, theme.pal.violet, 2);
             } else if (app.currentModel()) |m| {
                 var vb: [24]u8 = undefined;
                 const v: u32 = switch (i) {
@@ -917,7 +918,7 @@ pub const App = struct {
                     else => m.profile.cache_gib,
                 };
                 const txt = std.fmt.bufPrint(&vb, "{d}", .{v}) catch "";
-                p.text(txt, .mono_bold, theme.pal.text, fr.x + 12, fr.y + 14);
+                p.text(txt, .mono_bold, theme.pal.text, fr.x + 12, fr.y + 27);
             }
         }
 
