@@ -1,0 +1,41 @@
+# ---- checkpoints ------------------------------------------------------------
+# Model trees are tens of GiB; they never belong in git. The GUI and the serve
+# launchers discover whatever is under models/ at runtime.
+models/
+
+# ---- vendored toolchain / downloads ----------------------------------------
+# The Zig 0.17 aarch64-windows toolchain (~380 MB) lives in tools/ so the build
+# is reproducible on this box, but it is a download, not source.
+tools/
+downloads/
+.venv/
+venv/
+
+# ---- build output -----------------------------------------------------------
+zig-out/
+.zig-cache/
+*.exe
+*.pdb
+*.obj
+*.o
+*.lib
+*.bmp
+*.res
+
+# ---- runtime output ---------------------------------------------------------
+logs/
+*.log
+
+# ---- machine-specific config -----------------------------------------------
+# gui/models.json holds absolute checkpoint paths and per-model launch settings;
+# it is regenerated from the model folder when missing.
+gui/models.json
+
+# ---- misc -------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

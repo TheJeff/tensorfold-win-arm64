@@ -1,0 +1,2 @@
+#define IDI_TENSORFOLD 100
+IDI_TENSORFOLD ICON "tensorfold.ico"

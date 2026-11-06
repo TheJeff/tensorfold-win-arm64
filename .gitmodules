@@ -1,0 +1,9 @@
+[submodule "tensorfold"]
+	path = tensorfold
+	url = https://github.com/TheJeff/TensorFold.git
+[submodule "xgrammar"]
+	path = xgrammar
+	url = https://github.com/mlc-ai/xgrammar.git
+[submodule "bolt-recipe"]
+	path = bolt-recipe
+	url = https://github.com/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark.git
