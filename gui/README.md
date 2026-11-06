@@ -41,11 +41,30 @@ tensorfold-gui.exe                  # window; auto-attaches to a configured port
 tensorfold-gui.exe --attach 8082    # monitor a server this GUI did not start
 tensorfold-gui.exe --load 0         # load model index 0 on startup
 tensorfold-gui.exe --shot out.bmp   # headless render of the dashboard to BMP (dev aid)
+tensorfold-gui.exe --skin militech  # start with a skin (also applies to --shot)
+tensorfold-gui.exe --settings       # open the appearance overlay on startup
 ```
 
 The window is fixed-size and frameless (custom chrome, DWM rounded corners and
-shadow). `Esc` cancels a field edit, `F5` rescans `models/`, the title bar drags,
-and the two right-hand buttons minimise/close.
+shadow). `Esc` cancels a field edit, `F5` rescans `models/`, `F2` opens the
+appearance overlay, the title bar drags, and the two right-hand buttons
+minimise/close.
+
+## Skins
+
+The slider button left of the status chip (or `F2`) opens an appearance overlay
+listing the chassis palettes: ULTRAVIOLET (the original violet/magenta),
+MILITECH (olive drab with brass and hazard gold, faint 28 px engineering grid),
+PHOSPHOR (amber terminal with scanlines) and ICE (slate and cold blue). Picking
+one repaints the whole surface — panels, gauge banding, chips, the header mark —
+and writes `settings.json` next to the repo root so the choice survives restarts;
+`--skin <id>` overrides it for a single run. The palettes are plain colour sets in
+`src/theme.zig`, so adding a chassis is a matter of one `Palette` literal plus a
+row in `themes`.
+
+![militech skin](docs/gui-militech.png)
+
+![appearance overlay](docs/gui-settings.png)
 
 ## Model rail
 
@@ -107,7 +126,8 @@ so a freshly loaded model shows live counters without leaving the app.
 src/main.zig      window, message loop, timers, DPI, DWM, CLI
 src/app.zig       layout, painting, hit testing, state machine, polling
 src/gfx.zig       GDI+ shapes (rounded panels, gradients, arcs, area charts) + GDI text
-src/theme.zig     ultraviolet palette
+src/theme.zig     palette table + live `pal` (ultraviolet / militech / phosphor / ice)
+src/settings.zig  persisted skin choice (settings.json)
 src/models.zig    model scan + models.json profiles
 src/serve.zig     spawn/stop the serve process, log tail
 src/stats.zig     HTTP polling and JSON/Prometheus reduction

@@ -375,6 +375,12 @@ pub const Paint = struct {
     }
 
     /// Draws every queued string with GDI after flushing GDI+ to the same DC.
+    /// Draw everything queued so far and drop it, so shapes painted afterwards
+    /// (an opaque modal scrim, say) really sit on top of that text.
+    pub fn flushTextNow(p: *Paint) void {
+        p.flushText();
+        p.texts.clearRetainingCapacity();
+    }
     pub fn flushText(p: *Paint) void {
         _ = w.GdipFlush(p.g, 0);
         _ = w.SetBkMode(p.hdc, w.TRANSPARENT);

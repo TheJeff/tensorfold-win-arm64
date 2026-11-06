@@ -106,6 +106,9 @@ working set, and the real GPU framebuffer via NVML — it can also attach to a s
 did not start (`--attach PORT`). The binary carries the app mark (violet orb) as its
 window, taskbar and Explorer icon, rendered from `gui/src/make_icon.zig` into
 `gui/assets/tensorfold.ico` and embedded through `gui/assets/tensorfold.rc`.
+It is skinnable: the slider button in the header (or `F2`) opens an appearance
+overlay with the Ultraviolet, Militech (olive/brass/hazard gold), Phosphor and
+Ice palettes, and the choice persists in `settings.json`.
 
 ```
 gui\build-gui.bat

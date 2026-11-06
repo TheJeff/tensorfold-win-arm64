@@ -30,6 +30,8 @@ logs/
 # gui/models.json holds absolute checkpoint paths and per-model launch settings;
 # it is regenerated from the model folder when missing.
 gui/models.json
+# settings.json is the chosen skin; it is a local preference, not source.
+settings.json
 
 # ---- misc -------------------------------------------------------------------
 .DS_Store

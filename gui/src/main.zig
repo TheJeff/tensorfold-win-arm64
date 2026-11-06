@@ -161,8 +161,12 @@ fn wndproc(hwnd: w.HWND, msg: w.UINT, wp: w.WPARAM, lp: w.LPARAM) callconv(.c) w
                 switch (wp) {
                     w.VK_BACK => app.backspace(),
                     w.VK_RETURN => app.commit(),
-                    w.VK_ESCAPE => app.editing = null,
+                    w.VK_ESCAPE => {
+                        app.editing = null;
+                        app.settings_open = false;
+                    },
                     w.VK_F5 => app.rescan(),
+                    w.VK_F2 => app.settings_open = !app.settings_open,
                     else => {},
                 }
                 _ = w.InvalidateRect(hwnd, null, 0);
@@ -218,7 +222,7 @@ fn fillDemo(app: *app_mod.App) void {
     }
     app.anim_decode = 88.7;
     app.anim_prefill = 2463;
-    app.setStatus("serving", theme.green);
+    app.setStatus("serving", theme.pal.green);
 }
 
 const WarmCtx = struct {
@@ -241,6 +245,8 @@ pub fn main(init: std.process.Init) !void {
     var load_index: ?usize = null;
     var attach_port: ?u16 = null;
     var wait_s: u32 = 0;
+    var skin: []const u8 = "";
+    var open_settings = false;
     for (argv, 0..) |arg, i| {
         if (std.mem.eql(u8, arg, "--shot")) {
             shot = true;
@@ -251,6 +257,10 @@ pub fn main(init: std.process.Init) !void {
             if (i + 1 < argv.len) attach_port = std.fmt.parseInt(u16, argv[i + 1], 10) catch null;
         } else if (std.mem.eql(u8, arg, "--wait")) {
             if (i + 1 < argv.len) wait_s = std.fmt.parseInt(u32, argv[i + 1], 10) catch 0;
+        } else if (std.mem.eql(u8, arg, "--skin")) {
+            if (i + 1 < argv.len) skin = argv[i + 1];
+        } else if (std.mem.eql(u8, arg, "--settings")) {
+            open_settings = true;
         }
     }
 
@@ -265,6 +275,12 @@ pub fn main(init: std.process.Init) !void {
     const root = findRoot(a, io, init.environ_map);
     const exe = std.fmt.allocPrint(a, "{s}/tensorfold/zig-out/native/bin/tensorfold-native.exe", .{root}) catch "";
     var app = try app_mod.App.init(init.gpa, io, root, exe, init.environ_map);
+
+    // before the headless --shot path, so skins apply to captures too
+    if (skin.len > 0) {
+        if (theme.indexOf(skin)) |si| app.setTheme(si) else std.debug.print("unknown skin '{s}'\n", .{skin});
+    }
+    if (open_settings) app.settings_open = true;
 
     if (load_index) |idx| {
         if (idx < app.cat.models.len) {
