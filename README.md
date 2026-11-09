@@ -1,6 +1,6 @@
 # TensorFold on Windows ARM64 (NVIDIA RTX Spark N1X)
 
-This repository collects a **native Windows ARM64** build of [TensorFold](https://github.com/ashhart/TensorFold), the [Nemotron 3.5 Bolt recipe](https://github.com/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark), and a small Zig/Win32 server-control GUI. It does not require WSL or Docker.
+This repository builds a **native Windows ARM64 TensorFold server and a Zig/Win32 model-control GUI**. It supports the model families implemented by the pinned [TensorFold fork](https://github.com/TheJeff/TensorFold), including Qwen-family checkpoints. The [Nemotron 3.5 Bolt recipe](https://github.com/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark) is an **optional additional backend**, not the purpose of the entire project. WSL and Docker are not required.
 
 The TensorFold fork in the `tensorfold/` submodule already includes the Bolt build integration. **Do not apply the recipe's registration patch or copy its Zig sources again.** This repository provides the recipe's CUDA sources separately through `bolt-recipe/`.
 
@@ -46,7 +46,7 @@ git -c core.autocrlf=false submodule update --init --recursive
 
 The commit IDs in the submodules, rather than a moving branch tip, determine which sources you build. Keep the submodules at their recorded commits when reproducing this setup.
 
-## Build TensorFold and Bolt
+## Build TensorFold
 
 1. Extract the ARM64 Zig 0.17.0 archive into `tools/zig-aarch64-windows-0.17.0/`, so `tools/zig-aarch64-windows-0.17.0/zig.exe` exists.
 2. Install the ARM64 MSVC components and CUDA 13.4.
@@ -62,15 +62,20 @@ set "ZIG=%ROOT%\tools\zig-aarch64-windows-0.17.0\zig.exe"
 "%ZIG%" version
 "%CUDA_PATH%\bin\nvcc.exe" --version
 cd /d "%ROOT%\tensorfold"
+"%ZIG%" build native install -Dsm=121 -Dstrip=true -Dnvcc="%CUDA_PATH%\bin\nvcc.exe"
+```
+
+Expected output: `tensorfold/zig-out/native/bin/tensorfold-native.exe`.
+
+**Optional Bolt backend:** If you intend to run Nemotron 3.5 Bolt, build its additional CUDA DLL from the pinned recipe sources with:
+
+```bat
 "%ZIG%" build native bolt install -Dsm=121 -Dstrip=true -Dnvcc="%CUDA_PATH%\bin\nvcc.exe" -Dbolt-src="%ROOT%\bolt-recipe\engine"
 ```
 
-Expected output paths:
+This additionally produces `tensorfold/zig-out/native/lib/bolt.dll`. You do **not** need it to serve Qwen or other families with their own CUDA backend.
 
-- `tensorfold/zig-out/native/bin/tensorfold-native.exe`
-- `tensorfold/zig-out/native/lib/bolt.dll`
-
-The `build-bolt.bat` file invokes essentially the same build, **but currently hard-codes** the original developer's `C:\Projects\tensorfold-win-arm64`, Visual Studio and CUDA locations. Edit those paths before using it from another checkout, or use the portable commands above. The pinned fork has already integrated `patches/0002-register-bolt.patch`; applying it a second time is incorrect.
+The `build-bolt.bat` file invokes the optional Bolt build, **but currently hard-codes** the original developer's `C:\Projects\tensorfold-win-arm64`, Visual Studio and CUDA locations. Edit those paths before using it from another checkout, or use the portable commands above. The pinned fork has already integrated `patches/0002-register-bolt.patch`; applying it a second time is incorrect.
 
 ### Optional: structured output and tool calls
 
@@ -85,6 +90,8 @@ Confirm `tensorfold/zig-out/native/lib/tfgrammar.dll` exists. The pinned fork al
 
 ## Models and serving
 
+**This is not a Bolt-only model runner.** The native TensorFold executable can serve supported families beyond the two examples here. In particular, the pinned fork includes CUDA support for Qwen3.5/3.8 hybrid checkpoints and `qwen4_exp` (Qwen3.8 Flash-Next). Compatibility depends on a model's architecture and checkpoint format, not simply whether its name contains “Qwen.” Check the [fork's Windows documentation](https://github.com/TheJeff/TensorFold/blob/win-arm64/v1.2.3/docs/WINDOWS.md) and `tensorfold-native.exe info <checkpoint-directory>` when trying another checkpoint. Models not recognized by the pinned TensorFold source are not automatically supported by the GUI.
+
 The scripts expect unpacked model snapshots in `models/` with the **directory names shown below**. Model files are not included in this repository. Download the checkpoints from the model publishers, respecting their model licenses, and retain the original model metadata and shard files.
 
 - Bolt target: `models/Nemotron-3.5-Bolt-74B-A9B-24GB/` (model: `nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB`)
@@ -93,7 +100,9 @@ The scripts expect unpacked model snapshots in `models/` with the **directory na
 
 The provided `serve-bolt.bat` and `serve-qwen38.bat` **also hard-code the original `C:\Projects\tensorfold-win-arm64` root**. Either change `set "ROOT=..."` in each script or launch directly from Command Prompt as follows.
 
-**Nemotron 3.5 Bolt** (from the repository root):
+### Nemotron 3.5 Bolt (optional)
+
+From the repository root:
 
 ```bat
 set "ROOT=%CD%"
@@ -109,7 +118,9 @@ set "TENSORFOLD_NO_UPDATE_CHECK=1"
 
 If you do not have a matching drafter, remove `BOLT_DRAFT` from the environment and consult the pinned TensorFold/Bolt recipe for non-draft serving requirements. Do not point it at an unrelated checkpoint.
 
-**Qwen3.8 Flash-Next** (separate Command Prompt, from the repository root):
+### Qwen3.8 Flash-Next
+
+From a separate Command Prompt at the repository root:
 
 ```bat
 set "ROOT=%CD%"
@@ -145,12 +156,13 @@ gui\build-gui.bat
 gui\zig-out\bin\tensorfold-gui.exe
 ```
 
-The GUI build script locates Zig relative to its own directory and is not tied to `C:\Projects`. It scans `models/`, creates local `gui/models.json` profiles, launches the native server, and can attach to an existing server. See [gui/README.md](gui/README.md) for CLI options, screenshots, port behavior and limitations. It is a **server control/monitoring interface**, not a chat UI.
+The GUI build script locates Zig relative to its own directory and is not tied to `C:\Projects`. It scans checkpoint directories in `models/` and identifies models using their metadata; it is **not limited to Bolt or the supplied Qwen launch script**. It creates local `gui/models.json` profiles, launches the native server, and can attach to an existing server. The default launch profiles explicitly cover Bolt and `qwen4_exp`; verify and adjust settings for other architectures. See [gui/README.md](gui/README.md) for CLI options, screenshots, port behavior and limitations. It is a **server control/monitoring interface**, not a chat UI.
 
 ![TensorFold GUI](gui/docs/gui.png)
 
 ## Troubleshooting and scope
 
+- **A checkpoint appears but will not serve:** GUI discovery is not proof of TensorFold CUDA support for that architecture or weight format; inspect the model with `tensorfold-native.exe info` and consult the pinned fork's supported families.
 - **`zig` or `nvcc` not found:** confirm the ARM64 Zig archive location, `CUDA_PATH`, and that the MSVC ARM64 environment was activated in the **same Command Prompt** used for building.
 - **Patch rejects / CRLF errors:** clone with `git -c core.autocrlf=false`; do not manually reapply the Bolt or grammar patches to the pinned fork.
 - **Missing `bolt.dll` or `tfgrammar.dll`:** check the `zig-out/native/lib/` build output. Grammar is optional for ordinary text generation, but required for grammar-constrained requests.
