@@ -1,253 +1,179 @@
-# Nemotron 3.5 Bolt on Windows 11 ARM64 (RTX Spark N1X) — native, no WSL, no Docker
+# TensorFold on Windows ARM64 (NVIDIA RTX Spark N1X)
 
-Built, served and benchmarked on 2026-11-01 from
-`MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark` @ `646c947` (PR #7 merged),
-on TensorFold `eea9dc9c` (v1.1.6) + `patches/0002-register-bolt.patch`.
+This repository builds a **native Windows ARM64 TensorFold server and a Zig/Win32 model-control GUI**. It supports the model families implemented by the pinned [TensorFold fork](https://github.com/TheJeff/TensorFold), including Qwen-family checkpoints. The [Nemotron 3.5 Bolt recipe](https://github.com/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark) is an **optional additional backend**, not the purpose of the entire project. WSL and Docker are not required.
 
-This is the receipt for that path on this machine. It is the first build of the Bolt recipe
-outside Docker/Linux; nothing in it needs WSL.
+The TensorFold fork in the `tensorfold/` submodule already includes the Bolt build integration. **Do not apply the recipe's registration patch or copy its Zig sources again.** This repository provides the recipe's CUDA sources separately through `bolt-recipe/`.
 
-The work now lives in the fork [TheJeff/TensorFold](https://github.com/TheJeff/TensorFold), whose purpose
-is to advance TensorFold on this hardware: `main` there is this v1.1.6 baseline, and `win-arm64/v1.2.3`
-re-ports it onto upstream v1.2.3 (it builds and serves on this machine). That fork's `README.md` lists
-what differs from upstream and `FORK.md` lists the branches and pins.
+> **Status:** Windows ARM64 / NVIDIA CUDA source-build project, not an installer. Text generation and structured output are supported by the pinned source. JPEG, WebP and video require additional native libraries and are not covered by this setup. The commands below are derived from the committed sources and batch files; a fresh checkout on another machine has not been end-to-end verified.
 
-## Machine
+## Requirements
 
-- NVIDIA RTX Spark N1X, driver 617.42, **98,304 MiB framebuffer visible to CUDA** (WDDM pool)
-- Windows 11 Pro ARM64 (10.0.28000.3231), Balanced power plan, AC power
-- VS Build Tools 2022 17.14.42 with `Hostarm64` tools, CUDA 13.4.59 `nvcc`, Zig 0.17.0 aarch64-windows
+- Windows 11 ARM64 and an NVIDIA CUDA GPU. The supplied build flags target **SM 121** (NVIDIA GB10 / RTX Spark N1X); change `-Dsm` for a different supported GPU.
+- A compatible NVIDIA driver. The CUDA toolkit is needed to **build**; a driver is also needed to **run**.
+- Visual Studio 2022 Build Tools with **C++ build tools and ARM64 compiler/toolchain** (`vcvarsall.bat arm64`).
+- CUDA Toolkit **13.4** with Windows ARM64 `nvcc.exe`; set `CUDA_PATH` to its installation directory.
+- [Zig **0.17.0**, aarch64-windows](https://ziglang.org/download/0.17.0/) (not Zig 0.13/0.14 or an x64 binary).
+- Git, with LF-preserving checkout for the recipe patches; model weights are downloaded separately.
 
-## Layout
+The original environment used CUDA 13.4, Zig 0.17.0 and MSVC 2022. Other versions or GPU types are not validated here. Runtime memory requirements depend heavily on checkpoint, context and parallelism; the large examples below need substantial accessible CUDA memory.
 
-```
-tensorfold/                 submodule → TheJeff/TensorFold, branch win-arm64/v1.2.3
-                            pinned at 467e654cd (v1.2.3 + 4: the N1X port commits)
-bolt-recipe/                submodule → MiaAI-Lab's DGX Spark recipe (engine/, patches/, contract/)
-xgrammar/                   submodule → mlc-ai/xgrammar, pinned at 9778737 (v0.2.8) for tfgrammar.dll
-local-patches/              our fixes to the tree beyond the recipe: 0001-grammar-dll-windows.patch
-gui/                        Win32 Zig control surface (load/unload + telemetry)
-models/Nemotron-3.5-Bolt-74B-A9B-24GB     23 GiB, 90 shards, revision a326822a      (not in git)
-models/Nemotron-3.5-Bolt-LiLiCorr         918 MiB drafter, revision 4c6a5613        (not in git)
-models/Qwen3.8-Flash-Next-FP4-Local       95.24 GiB, 21 shards                     (not in git)
-tools/zig-aarch64-windows-0.17.0/         Zig 0.17.0, sha256 0a59d91f…26            (not in git)
-build-bolt.bat, build-grammar.bat, serve-bolt.bat, serve-qwen38.bat
-logs/                       build, serve and bench output                          (not in git)
+## Checkout and directory layout
+
+In PowerShell, choose **any writable parent directory**:
+
+```powershell
+git -c core.autocrlf=false clone --recurse-submodules https://github.com/TheJeff/tensorfold-win-arm64.git
+cd tensorfold-win-arm64
+git submodule status
 ```
 
-Clone with `git clone --recurse-submodules`, then drop the Zig 0.17 aarch64-windows
-toolchain into `tools/` (see `.gitignore`: checkpoints, the toolchain, downloads and
-build output stay out of the repo).
+If already cloned without submodules:
 
-## Artifacts
-
-| File | Bytes | sha256 |
-| --- | ---: | --- |
-| `tensorfold/zig-out/native/lib/bolt.dll` | 6,206,464 | `fad5dc8532f6e1ff339c3ede5dd6ca5d2be3017e3d8b8a4e538f39666c043b16` |
-| `tensorfold/zig-out/native/lib/tfgrammar.dll` | 2,501,632 | `4f677b740d1514530415cc376539a0515cb30033287fd9a0bde98166d5720309` |
-| `tensorfold/zig-out/native/bin/tensorfold-native.exe` | 35,873,792 | `9ee2f6161b9cd868bae241935b439c3405d5d45fcc76ec7c3766deadb8da0d60` |
-
-`tensorfold-native info` on the snapshot: `family: Nemotron 3.5 Bolt (nemotron_h_puzzle)`,
-`modelopt mixed precision (IQ2_XXS, Q8_0, W4A16_NVFP4)`, 22.46 GiB.
-`scripts/ckptcheck.py` accepts it: `nemotron_h_puzzle, 88 layers (40 Mamba, 40 MoE, 8 attention),
-top-9, latent 1024, IQ2_XXS 27728, NVFP4 80, Q8_0 113, 90 shards`.
-
-## Build (verified commands, ~7 min)
-
-1. Zig 0.17.0 aarch64-windows from `https://ziglang.org/download/0.17.0/zig-aarch64-windows-0.17.0.zip`
-   (sha256 `0a59d91fa1cb40cf068e9b0954434ce973500c7a2ea749f1e01af62cdab52d26`).
-2. `git clone` the recipe **with `core.autocrlf false`**. Without it the checkout turns
-   `patches/0002` into CRLF and `git apply` fails on TensorFold's LF files (`patch does not apply`
-   on `zig/build/cuda.zig`, `zig/src/cli/hub.zig`, `zig/src/families/nemotron/cuda.zig`,
-   `zig/src/native/cuda.zig`, `zig/src/server/main.zig`). Fixing it is
-   `git config core.autocrlf false && rm patches/0002-register-bolt.patch && git checkout -- patches/`.
-3. `git init tensorfold`, `git config core.autocrlf false`, fetch `eea9dc9c`, detach, then
-   `git apply C:/Projects/tensorfold-win-arm64/bolt-recipe/patches/0002-register-bolt.patch`
-   and copy `bolt_native.zig` + `bolt_api.zig` into `zig/src/families/nemotron/`.
-4. From `vcvarsall.bat arm64`: `zig build native bolt install -Dsm=121 -Dstrip=true
-   -Dnvcc=<CUDA 13.4>\bin\nvcc.exe -Dbolt-src=C:\Projects\tensorfold-win-arm64\bolt-recipe\engine`.
-   See `build-bolt.bat`.
-5. Structured output: `git clone --branch v0.2.8 --recurse-submodules https://github.com/mlc-ai/xgrammar`,
-   then `zig build grammar -Dxgrammar=<clone>` (`build-grammar.bat`), **plus**
-   `git apply local-patches/0001-grammar-dll-windows.patch` and a rebuild — without the patch the
-   DLL builds but the server never finds it (see the section below).
-
-Hermes/MSYS traps hit on the way: native `git` cannot read `/c/...` paths here (path conversion is
-off) — pass `C:/...`; `cmd //c foo.bat` silently opened an interactive prompt instead of running the
-bat, so call `./foo.bat` directly from bash.
-
-## Serve
-
-`serve-bolt.bat` (defaults mirror `docs/windows.md`: 4 streams, 131k, 4 GiB cache, port 8082).
-`PARALLEL` / `CONTEXT` / `PROMPT_CACHE_GIB` / `PORT` can be set in the environment.
-
-```
-BOLT_DRAFT=<models\Nemotron-3.5-Bolt-LiLiCorr> BOLT_KV=bf16 BOLT_KV_PIN=0 BOLT_SSM_LAZY=1
-BOLT_DRAFT_Q8=1 BOLT_NV4_FP4=1
-tensorfold-native.exe serve <snapshot> --name Nemotron-3.5-Bolt --host 127.0.0.1 --port 8082
-  --parallel N --context N --prompt-cache-gib N
+```powershell
+git -c core.autocrlf=false submodule update --init --recursive
 ```
 
-Load: **26–27 s**. With the recipe's own defaults (`PARALLEL=16`, `CONTEXT=262144`, 8 GiB prompt
-cache) the GPU held **34.7 GB** of 98,304 MiB and the server reported 61.8 GiB left after its
-11.0 GiB reserve — i.e. the full Spark-shaped configuration fits this laptop without downsizing.
-(The PR's 64 GB machine had to drop to 4 streams / 131k / 4 GiB.)
+| Path | Purpose |
+| --- | --- |
+| `tensorfold/` | Pinned [TheJeff/TensorFold](https://github.com/TheJeff/TensorFold) fork, on the v1.2.3-based Windows ARM64 port |
+| `bolt-recipe/` | Pinned Bolt recipe; `engine/` supplies the CUDA sources for `bolt.dll` |
+| `xgrammar/` | Pinned xgrammar source used to build `tfgrammar.dll` |
+| `gui/` | Native Zig/Win32 GUI; see [GUI README](gui/README.md) |
+| `local-patches/` | Historical grammar loader patch, **not needed** with the pinned TensorFold fork |
+| `models/` | Your downloaded checkpoints (ignored by Git; create this folder) |
+| `tools/` | Local Zig toolchain (ignored by Git) |
+| `tensorfold/zig-out/`, `gui/zig-out/` | Build outputs (not committed) |
 
-## Control GUI (Zig, native)
+The commit IDs in the submodules, rather than a moving branch tip, determine which sources you build. Keep the submodules at their recorded commits when reproducing this setup.
 
-`gui/` is a Win32 control surface written in Zig 0.17 — one binary, no Electron, WebView,
-Node or runtime DLLs. It scans `models/`, reads each checkpoint's family/quant/shard
-metadata, pairs drafters, and loads or unloads a checkpoint by driving
-`tensorfold-native serve` with a per-model profile from `gui/models.json` (port, lanes,
-context, prompt cache, env vars, extra args). While a server runs it polls
-`/health`, `/stats` and `/metrics` and draws decode/prefill throughput, a five-minute
-chart, live counters, MTP acceptance, KV occupancy, host RAM plus the serve process's
-working set, and the real GPU framebuffer via NVML — it can also attach to a server it
-did not start (`--attach PORT`). The binary carries the app mark (violet orb) as its
-window, taskbar and Explorer icon, rendered from `gui/src/make_icon.zig` into
-`gui/assets/tensorfold.ico` and embedded through `gui/assets/tensorfold.rc`.
-It is skinnable: the slider button in the header (or `F2`) opens an appearance
-overlay with the Ultraviolet, Militech (olive/brass/hazard gold), Phosphor and
-Ice palettes, and the choice persists in `settings.json`.
+## Build TensorFold
 
+1. Extract the ARM64 Zig 0.17.0 archive into `tools/zig-aarch64-windows-0.17.0/`, so `tools/zig-aarch64-windows-0.17.0/zig.exe` exists.
+2. Install the ARM64 MSVC components and CUDA 13.4.
+3. Open **Command Prompt** at the repository root. Adapt the Visual Studio path and CUDA path to your installations:
+
+```bat
+call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" arm64
+set "CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4"
+set "PATH=%CUDA_PATH%\bin;%PATH%"
+set "ROOT=%CD%"
+set "ZIG=%ROOT%\tools\zig-aarch64-windows-0.17.0\zig.exe"
+
+"%ZIG%" version
+"%CUDA_PATH%\bin\nvcc.exe" --version
+cd /d "%ROOT%\tensorfold"
+"%ZIG%" build native install -Dsm=121 -Dstrip=true -Dnvcc="%CUDA_PATH%\bin\nvcc.exe"
 ```
+
+Expected output: `tensorfold/zig-out/native/bin/tensorfold-native.exe`.
+
+**Optional Bolt backend:** If you intend to run Nemotron 3.5 Bolt, build its additional CUDA DLL from the pinned recipe sources with:
+
+```bat
+"%ZIG%" build native bolt install -Dsm=121 -Dstrip=true -Dnvcc="%CUDA_PATH%\bin\nvcc.exe" -Dbolt-src="%ROOT%\bolt-recipe\engine"
+```
+
+This additionally produces `tensorfold/zig-out/native/lib/bolt.dll`. You do **not** need it to serve Qwen or other families with their own CUDA backend.
+
+The `build-bolt.bat` file invokes the optional Bolt build, **but currently hard-codes** the original developer's `C:\Projects\tensorfold-win-arm64`, Visual Studio and CUDA locations. Edit those paths before using it from another checkout, or use the portable commands above. The pinned fork has already integrated `patches/0002-register-bolt.patch`; applying it a second time is incorrect.
+
+### Optional: structured output and tool calls
+
+Build the grammar DLL from the `xgrammar/` submodule using the same configured Command Prompt:
+
+```bat
+cd /d "%ROOT%\tensorfold"
+"%ZIG%" build grammar -Dxgrammar="%ROOT%\xgrammar"
+```
+
+Confirm `tensorfold/zig-out/native/lib/tfgrammar.dll` exists. The pinned fork already recognizes the Windows DLL name. **Do not apply `local-patches/0001-grammar-dll-windows.patch` to this version.** The `build-grammar.bat` helper also contains an absolute checkout path; edit it if you prefer that helper.
+
+## Models and serving
+
+**This is not a Bolt-only model runner.** The native TensorFold executable can serve supported families beyond the two examples here. In particular, the pinned fork includes CUDA support for Qwen3.5/3.8 hybrid checkpoints and `qwen4_exp` (Qwen3.8 Flash-Next). Compatibility depends on a model's architecture and checkpoint format, not simply whether its name contains “Qwen.” Check the [fork's Windows documentation](https://github.com/TheJeff/TensorFold/blob/win-arm64/v1.2.3/docs/WINDOWS.md) and `tensorfold-native.exe info <checkpoint-directory>` when trying another checkpoint. Models not recognized by the pinned TensorFold source are not automatically supported by the GUI.
+
+The scripts expect unpacked model snapshots in `models/` with the **directory names shown below**. Model files are not included in this repository. Download the checkpoints from the model publishers, respecting their model licenses, and retain the original model metadata and shard files.
+
+- Bolt target: `models/Nemotron-3.5-Bolt-74B-A9B-24GB/` (model: `nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB`)
+- Optional Bolt drafter: `models/Nemotron-3.5-Bolt-LiLiCorr/` (matching LiLiCorr drafter checkpoint)
+- Qwen target: `models/Qwen3.8-Flash-Next-FP4-Local/` (model: `nvidia/Qwen3.8-Flash-Next-FP4-Local`)
+
+The provided `serve-bolt.bat` and `serve-qwen38.bat` **also hard-code the original `C:\Projects\tensorfold-win-arm64` root**. Either change `set "ROOT=..."` in each script or launch directly from Command Prompt as follows.
+
+### Nemotron 3.5 Bolt (optional)
+
+From the repository root:
+
+```bat
+set "ROOT=%CD%"
+set "BOLT_DRAFT=%ROOT%\models\Nemotron-3.5-Bolt-LiLiCorr"
+set "BOLT_KV=bf16"
+set "BOLT_KV_PIN=0"
+set "BOLT_SSM_LAZY=1"
+set "BOLT_DRAFT_Q8=1"
+set "BOLT_NV4_FP4=1"
+set "TENSORFOLD_NO_UPDATE_CHECK=1"
+"%ROOT%\tensorfold\zig-out\native\bin\tensorfold-native.exe" serve "%ROOT%\models\Nemotron-3.5-Bolt-74B-A9B-24GB" --name Nemotron-3.5-Bolt --host 127.0.0.1 --port 8082 --parallel 4 --context 131072 --prompt-cache-gib 4
+```
+
+If you do not have a matching drafter, remove `BOLT_DRAFT` from the environment and consult the pinned TensorFold/Bolt recipe for non-draft serving requirements. Do not point it at an unrelated checkpoint.
+
+### Qwen3.8 Flash-Next
+
+From a separate Command Prompt at the repository root:
+
+```bat
+set "ROOT=%CD%"
+set "TENSORFOLD_MEMORY_RESERVE_GIB=4"
+set "TF_FLASHNEXT_DRAFTS=6"
+set "TF_FLASHNEXT_GATHER_READ=pread"
+set "TENSORFOLD_NO_UPDATE_CHECK=1"
+"%ROOT%\tensorfold\zig-out\native\bin\tensorfold-native.exe" serve "%ROOT%\models\Qwen3.8-Flash-Next-FP4-Local" --name Qwen3.8-Flash-Next --host 127.0.0.1 --port 8083 --parallel 2 --context 262144 --prompt-cache-gib 4 --dashboard --metrics-open
+```
+
+Qwen3.8's `qwen4_exp` CUDA support is supplied by the pinned TensorFold fork; it does **not** use `bolt.dll`. This large checkpoint and the example 262k context require a suitably large device memory budget. Reduce `--parallel`/`--context` if necessary; the example is not a universal default. The Windows CUDA path has been documented as using bf16 KV for this model, not fp8 KV.
+
+### Smoke test
+
+With a server running, use PowerShell in another terminal:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8082/v1/models
+$body = @{
+  model = "Nemotron-3.5-Bolt"
+  messages = @(@{ role = "user"; content = "Say hello in one sentence." })
+  max_tokens = 64
+} | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8082/v1/chat/completions -ContentType "application/json" -Body $body
+```
+
+Use port `8083` and model name `Qwen3.8-Flash-Next` for the Qwen launcher. A successful `/v1/models` response confirms HTTP availability; generation confirms the model has loaded and can run. Structured `response_format` and required tool calls additionally need `tfgrammar.dll`.
+
+## Native control GUI
+
+```bat
 gui\build-gui.bat
-gui\zig-out\bin\tensorfold-gui.exe            (--attach PORT | --load N | --shot out.bmp)
+gui\zig-out\bin\tensorfold-gui.exe
 ```
 
-Verified on this machine: load 26 s → serving on 8082, NVML 30.9/96.0 GiB resident,
-a test prompt produced 96 tokens at 48 % MTP acceptance, unload returned the GPU to
-3.2 GiB. Flags, file map and limits: `gui/README.md`; screenshot: `gui/docs/gui.png`.
+The GUI build script locates Zig relative to its own directory and is not tied to `C:\Projects`. It scans checkpoint directories in `models/` and identifies models using their metadata; it is **not limited to Bolt or the supplied Qwen launch script**. It creates local `gui/models.json` profiles, launches the native server, and can attach to an existing server. The default launch profiles explicitly cover Bolt and `qwen4_exp`; verify and adjust settings for other architectures. See [gui/README.md](gui/README.md) for CLI options, screenshots, port behavior and limitations. It is a **server control/monitoring interface**, not a chat UI.
 
-## Qwen3.8 Flash-Next on this box (qwen4_exp)
+![TensorFold GUI](gui/docs/gui.png)
 
-MiaAI-Lab's [Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold](https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold)
-recipe targets Linux/Docker on a 121 GiB Spark and pins TensorFold v1.1.4 plus a patch series.
-On this machine it needs no `.cu` DLL port like Bolt did: TensorFold 1.2.3 already registers
-`flashnext` in the native CUDA registry (`zig/src/native/cuda.zig`), lists `qwen4_exp` in
-`capabilities --json`, reads the recipe's `TF_FLASHNEXT_*` knobs, and `info` recognises NVIDIA's
-checkpoint as `modelopt mixed precision (MXFP8, NVFP4, W4A16_NVFP4)`. The work was data and
-settings, not kernels.
+## Troubleshooting and scope
 
-Verified 2026-11-05 with `nvidia/Qwen3.8-Flash-Next-FP4-Local` (95.24 GiB on disk, 21 shards):
+- **A checkpoint appears but will not serve:** GUI discovery is not proof of TensorFold CUDA support for that architecture or weight format; inspect the model with `tensorfold-native.exe info` and consult the pinned fork's supported families.
+- **`zig` or `nvcc` not found:** confirm the ARM64 Zig archive location, `CUDA_PATH`, and that the MSVC ARM64 environment was activated in the **same Command Prompt** used for building.
+- **Patch rejects / CRLF errors:** clone with `git -c core.autocrlf=false`; do not manually reapply the Bolt or grammar patches to the pinned fork.
+- **Missing `bolt.dll` or `tfgrammar.dll`:** check the `zig-out/native/lib/` build output. Grammar is optional for ordinary text generation, but required for grammar-constrained requests.
+- **Out-of-memory / load failure:** check available CUDA device memory and lower context or parallelism. Model weight sizes alone do not describe peak loading/runtime requirements.
+- **GUI cannot find models:** create `models/` in the repository root and include each checkpoint's `config.json` and weight files.
+- **Images/video:** native Windows ARM64 JPEG, WebP and FFmpeg-based video dependencies are not provided. See [NEXT-STEPS.md](NEXT-STEPS.md) for what remains to be ported.
 
-```
-serve-qwen38.bat        (parallel 2, 262k, bf16 KV, pread n-gram reader, 4 GiB reserve)
-```
+The benchmark figures and machine-specific binary hashes from the original development setup are **not reproducibility guarantees**. For performance comparisons, record the exact submodule SHAs, GPU/driver, memory budget, model revisions, build flags, context, concurrency and measurement method.
 
-- `tensorfold-native info`: `family: Qwen3.8 Flash Next (qwen4_exp)`, `weights: 95.24 GiB`.
-- Serve with `--parallel 1 --context 32768 --kv-cache` omitted: **loaded in 41.0 s**, engine
-  reports **72.71 GiB** resident, NVML shows 78.2 GiB of the 96 GiB framebuffer.
-- Chat completion returned 42 tokens (MTP 58 % acceptance); a 110-token reply took 3.57 s
-  (~30 tok/s single stream, 25-token prompt).
-- **`--kv-cache fp8` is refused**: "this CUDA family keeps bf16 caches". The recipe's fp8 KV
-  patch is not in the Windows path, so a full 262,144-token window costs ~10.6 GiB and two
-  streams fit where the recipe runs five.
-- Text only: image/video decode still needs `turbojpeg.dll`/webp/`tfvideo.dll`, which this tree
-  does not build on Windows (`NEXT-STEPS.md`); the vision tower itself loads.
+## Related projects
 
-## Measured
-
-`tensorfold/tools/bench_concurrent.py`, 512-token replies, thinking off, drafts on, **one run each**
-(no medians), Balanced plan. 4-stream cells ran on the 4-stream/131k server config; 8- and 16-stream
-cells on the 16-stream/262k config.
-
-| streams | prompt | sampling | aggregate tok/s | each stream | TTFT max |
-| ---: | --- | --- | ---: | ---: | ---: |
-| 1 | chat (prose) | greedy | 88.7 | 88.7 | 0.07 s |
-| 1 | chat (prose) | sampled | 86.9 | 86.9 | 0.05 s |
-| 1 | code | greedy | 145.4 | 145.4 | 0.07 s |
-| 1 | code | sampled | 129.8 | 129.8 | 0.07 s |
-| 4 | chat | greedy | 240.9 | 60.6 | 0.17 s |
-| 4 | chat | sampled | 179.9 | 47.1 | 0.17 s |
-| 4 | code | greedy | 390.9 | 99.2 | 0.20 s |
-| 4 | code | sampled | 204.6 | 68.2 | 0.20 s |
-| 8 | chat | greedy | 308.6 | 39.0 | 0.36 s |
-| 8 | chat | sampled | 215.0 | 28.2 | 0.37 s |
-| 8 | code | greedy | 413.4 | 52.6 | 0.43 s |
-| 8 | code | sampled | 229.5 | 38.0 | 0.42 s |
-| 16 | chat | greedy | 343.7 | 21.8 | 0.71 s |
-| 16 | chat | sampled | 254.3 | 17.1 | 0.70 s |
-| 16 | code | greedy | 446.2 | 28.8 | 1.02 s |
-| 16 | code | sampled | 251.1 | 18.3 | 0.86 s |
-
-Cold prefill (fresh random-word prompt, `max_tokens 1`, prompt cache cannot help):
-
-| prompt tokens | prefill tok/s | prefill time |
-| ---: | ---: | ---: |
-| 23,814 | 2,463 | 9.67 s |
-| 44,171 | 2,313 | 19.09 s |
-| 122,447 | 1,601 | 76.48 s |
-
-Correctness (`bench_concurrent.py --alone --serial`, greedy, 4 streams, 128 tokens):
-concurrent replies equal solo ones **4/4**, and drafted replies equal `"draft": false` **1/1**.
-Speculative acceptance on a short smoke request: 30/73 drafts, 2.88 tokens a round.
-
-### Against the PR's own N1X numbers
-
-The PR measured a 64 GB N1X on battery: 59.9 prose greedy / 100.1 code greedy / 47.6 prose sampled
-alone, 117.6 aggregate at 4 streams, 1,508 tok/s on a 24k prompt. This machine, on AC with the full
-96 GiB framebuffer: 88.7 / 145.4 / 86.9 alone, 240.9 aggregate at 4 streams, 2,463 tok/s at 24k.
-Not an apples-to-apples delta — different memory partition, power source and driver (617.42 here,
-621.01 there) — but it puts the Windows path at or above the Linux/Docker numbers published for a
-DGX Spark on the same cells (73.8 prose / 137.4 code greedy, 330 aggregate at 16 streams).
-
-## Structured output on Windows — two upstream gaps, both patched locally
-
-`zig build grammar -Dxgrammar=<clone>` builds `tfgrammar.dll` fine, but TensorFold 1.1.6 will not
-find it on Windows as shipped:
-
-1. `zig/src/platform/optional_libraries.zig` gives `tfgrammar` only `.dylib`/`.so` names (the
-   `.video`/`.jpeg` entries right above it *do* have Windows branches — this one was missed).
-2. `zig/src/core/lanes/grammar.zig` hard-codes `pub const library = "libtfgrammar.so"`, so the
-   loader looks for `../lib/libtfgrammar.so`, `./libtfgrammar.so` and a bare `libtfgrammar.so`,
-   never `tfgrammar.dll`.
-
-Both fixes are in `local-patches/0001-grammar-dll-windows.patch` (already applied in this tree;
-re-apply with `git apply` after a fresh checkout). Verified after rebuild:
-
-- `response_format` `json_schema` (strict, `additionalProperties: false`) → valid JSON that parses
-  and carries every required key.
-- `tool_choice: "required"` with one function → `tool_calls` with
-  `{"name":"get_weather","arguments":"{\"city\":\"Osaka\",\"unit\":\"c\"}"}`, `finish_reason:
-  tool_calls`.
-
-## What this path does not have
-
-- **Images and video**: the RADIO tower loads, but `libturbojpeg` and `libtfvideo` are not built on
-  Windows, so this runbook serves text only. Loader names for `turbojpeg.dll`/`tfvideo.dll` already
-  exist in `optional_libraries.zig` (webp's does not); what is missing is the libraries themselves
-  and, for video, a `zig build video` that links Windows import libraries instead of static `.a`.
-  Full breakdown, upstream watch list and work plan: `NEXT-STEPS.md`.
-- `start.sh` / `stop.sh` / the Docker image are Linux-side; on Windows you drive
-  `tensorfold-native.exe` directly (that is what `serve-bolt.bat` does).
-- The Linux build was not rebuilt with these changes (upstream's claim, not verified here).
-
-## Other models: what would it take
-
-Nothing in this folder is Bolt-specific except `bolt.dll` and the patch that registers
-`nemotron_h_puzzle`. Two tiers:
-
-1. **Already native on Windows, no work.** TensorFold's own Windows CUDA port serves
-   Nemotron 3.5 Lightning 30B-A3B and the Qwen3.5/3.8 hybrids (MLX-4bit and mixed-width
-   checkpoints, `--drafter` DFlash2). Build `zig build native install -Dsm=121` and serve them;
-   `libtfgrammar`/`tfgrammar.dll` is the same structured-output gap.
-2. **Needs a port, same shape as this one.** For a family whose forward pass has no Windows-capable
-   CUDA kernels — Flash-Next, an EXL3 `qwen3_5_moe`, anything else — the recipe pattern is:
-   a `.cu` forward-pass library built as a DLL (with a `bolt.def`-style export list), a Zig lane
-   backend that binds it (`bolt_api.zig`), a patch that registers the family in the CUDA host, and
-   the portability shims (`bolt_port.h` for mmap/fadvise, `sys` layer for clock/env). The porting
-   work is mechanical; the kernels are the real cost. EXL3 additionally has no Zig loader at all —
-   that format currently lives only in TensorFold's Python engine.
-
-## Next steps
-
-- Pictures/video: build `turbojpeg.dll` (libjpeg-turbo 3.1.4.1) and `tfvideo.dll` (FFmpeg 9.0.2)
-  if images matter; `optional_libraries.zig` already knows the Windows names.
-- Long-context check at the full 262,144 window, and a prompt-cache hit-rate test with a repeated
-  system prompt (the recipe claims prefix reuse restores Mamba state + attention rows).
-- An agentic smoke test now that `tool_choice: required` works end to end (Hermes against
-  `http://127.0.0.1:8082/v1`).
-- Offer the two grammar-name fixes upstream as a PR against TensorFold; they are two one-line
-  changes and block structured output for every Windows user.
-- `serve-bolt.bat` is the launcher; add a `stop` wrapper if this becomes the daily driver.
+- [TensorFold upstream](https://github.com/ashhart/TensorFold) and [Windows build documentation](https://github.com/TheJeff/TensorFold/blob/win-arm64/v1.2.3/docs/WINDOWS.md)
+- [Windows ARM64 TensorFold fork](https://github.com/TheJeff/TensorFold) (see its `FORK.md` for branch history)
+- [Nemotron 3.5 Bolt recipe](https://github.com/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark) (see `docs/windows.md`)
