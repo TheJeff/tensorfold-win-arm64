@@ -1,18 +1,14 @@
-# What's still missing, and what to re-check upstream before building it
+# Optional Windows ARM64 multimedia dependencies
 
-Status 2026-11-01. Text serving, structured output and tool calls work (see `README.md`). The three
-gaps below are **images (JPEG), images (WebP) and video** — all of them are "the library isn't there
-yet", not "the code can't do it".
-
-Re-read this file before starting; the first section is the part that saves the most time.
+This is a development reference for adding JPEG, WebP and video decoding to the pinned Windows ARM64 TensorFold fork. It is **not required to build or serve text models**, including supported Qwen checkpoints. The missing pieces are optional native libraries and Windows build/link steps. These notes describe what was investigated in November 2026; check the pinned TensorFold source and current upstream implementation before relying on version or dependency assumptions.
 
 ## Pins this work was built against
 
 | piece | pin | where it is recorded |
 | --- | --- | --- |
-| TensorFold | `eea9dc9c` (v1.1.6) | `bolt-recipe/scripts/config.sh` `TF_REF` |
-| Bolt recipe | `646c947` (PR #7 merged) | `bolt-recipe/` |
-| xgrammar | v0.2.8 | `zig/src/platform/grammar_library.zig` |
+| TensorFold | Repository's `tensorfold/` submodule (v1.2.3-based Windows branch) | `.gitmodules` and the superproject's submodule gitlink; **not** the older recipe's `TF_REF` |
+| Bolt recipe | Repository's pinned `bolt-recipe/` submodule | gitlink for `bolt-recipe/` |
+| xgrammar | Repository's pinned `xgrammar/` submodule (v0.2.8 lineage) | gitlink for `xgrammar/` |
 | libjpeg-turbo | **3.1.4.1** | `zig/src/core/picture/jpeg.zig` `pinned` |
 | libwebp | **1.6.0** (`0x010600`) | `zig/src/core/picture/webp.zig` `pinned` |
 | FFmpeg | **9.0.2** | `zig/build/video.zig` `pinned` |
@@ -25,21 +21,19 @@ Everything we hit was an unported path in an otherwise working tree, so the odds
 somebody fixed one of these in the meantime. Run these first; if a fix landed, drop our local patch
 instead of carrying it.
 
-**TensorFold** (`ashhart/TensorFold`, ours is at `eea9dc9c`):
+**TensorFold** (compare the pinned `tensorfold/` checkout with upstream):
 
 ```bash
 git ls-remote https://github.com/ashhart/TensorFold.git HEAD          # is main past eea9dc9c?
 git fetch --depth 50 https://github.com/ashhart/TensorFold.git main   # then diff the files below
-git diff eea9dc9c FETCH_HEAD -- docs/WINDOWS.md \
+git diff HEAD FETCH_HEAD -- docs/WINDOWS.md \
     zig/src/platform/optional_libraries.zig zig/src/core/lanes/grammar.zig \
     zig/src/core/picture/webp.zig zig/build/video.zig zig/build/grammar.zig
 ```
 
 What to look for, and what it would mean:
 
-- a `win` branch on the **grammar** entry in `optional_libraries.zig` and a Windows name in
-  `lanes/grammar.zig` → `local-patches/0001-grammar-dll-windows.patch` is obsolete; rebuild clean
-  and delete it.
+- **Grammar is already Windows-aware in the pinned v1.2.3-based fork**: both the optional library registry and lane loader name `tfgrammar.dll`. The historical `local-patches/0001-grammar-dll-windows.patch` should **not** be applied. Check for regressions when updating the submodule.
 - a `win` branch on the **webp** entry and in `picture/webp.zig`'s `library` → skip the name patch
   in item 2.
 - `docs/WINDOWS.md` mentioning jpeg, video or webp at all, or a `zig build video`/`jpeg` step with
@@ -47,7 +41,7 @@ What to look for, and what it would mean:
   route (shared vs static FFmpeg) and its choice beats ours.
 - release notes / a Windows-arm64 asset in a release → prefer the binary over a source build.
 
-**Recipe repo** (`MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark`):
+**Optional Bolt recipe** (`MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark`):
 
 ```bash
 curl -s "https://api.github.com/repos/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark/commits?since=2026-11-01T00:00:00Z" | \
@@ -150,5 +144,4 @@ should read FFmpeg 9.0.2, and the frame description should match the clip.
 
 ## Keep the receipt
 
-Whatever gets done, append to `README.md`: the library version, how it was built, the DLL hash, and
-one verified request. The numbers and paths are what make the next session cheap.
+When adding an optional decoder, document the exact version, source or build procedure, required runtime DLLs and a verified test request. Put machine-specific measurements, filesystem paths and binary hashes in an explicitly labeled test report rather than in the general installation guide.
