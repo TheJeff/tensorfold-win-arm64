@@ -99,6 +99,8 @@ pub const App = struct {
     log_buf: [16 << 10]u8 = undefined,
     log_len: usize = 0,
     log_path: []const u8 = "",
+    /// The engine binary's own version, probed once from `<exe> --version` ("1.2.6").
+    engine_version: []const u8 = "",
     status_buf: [160]u8 = undefined,
     status_len: usize = 0,
     status_color: theme.Color = theme.ultraviolet.text_mute,
@@ -682,22 +684,6 @@ pub const App = struct {
         p.text("TENSORFOLD", .display, theme.pal.text, 46, 12);
         const wordmark_w = p.textWidth("TENSORFOLD", .display, 0);
         p.textTracking("CONTROL · N1X", .ui_label, theme.pal.violet, 46 + wordmark_w + 18, 22, 2);
-        if (app.server != null or app.attached_port != null) {
-            const m = app.cat.models[app.servingIndex() orelse 0];
-            var up_buf: [64]u8 = undefined;
-            const started: i64 = if (app.server) |s| s.started_ms else app.attached_since_ms;
-            const up_s: u64 = @intCast(@max(0, @divTrunc(util.nowMs(app.io) - started, 1000)));
-            const up = util.fmtDuration(&up_buf, up_s);
-            var head2: [192]u8 = undefined;
-            const htxt = std.fmt.bufPrint(&head2, "{s}  ·  {s}  ·  {d} lanes  ·  ctx {d}  ·  up {s}", .{
-                m.name,
-                if (app.snap.backend.len > 0) app.snap.backend else "cuda",
-                m.profile.parallel,
-                m.profile.context,
-                up,
-            }) catch "";
-            p.textFit(htxt, .ui_small, theme.pal.text_dim, 352, 20, 610);
-        }
 
         // window buttons
         for ([_]struct { x: f32, label: []const u8, act: Action }{
@@ -742,9 +728,52 @@ pub const App = struct {
         const endpoint = if (app.attached_port) |aport| std.fmt.bufPrint(&chip_buf, "{s} · 127.0.0.1:{d}", .{ state_text, aport }) catch state_text else if (app.server) |s| std.fmt.bufPrint(&chip_buf, "{s} · 127.0.0.1:{d}", .{ state_text, s.port }) catch state_text else state_text;
         const chip_track: i32 = 1;
         const cw = p.textWidth(endpoint, .ui_small, chip_track) + 46;
-        p.panel(W - 176 - cw, 12, cw, 28, 14, theme.pal.panel_hi, theme.pal.panel_sunk, theme.alpha(state_color, 120), null);
-        p.fillCircle(W - 176 - cw + 16, 26, 4, state_color);
-        p.textTracking(endpoint, .ui_small, state_color, W - 176 - cw + 28, 19, chip_track);
+        const chip_left = W - 176 - cw;
+        p.panel(chip_left, 12, cw, 28, 14, theme.pal.panel_hi, theme.pal.panel_sunk, theme.alpha(state_color, 120), null);
+        p.fillCircle(chip_left + 16, 26, 4, state_color);
+        p.textTracking(endpoint, .ui_small, state_color, chip_left + 28, 19, chip_track);
+
+        // engine version: what the binary on disk is (probed once) and what the server reports.
+        // A mismatch is the case worth seeing, so it is the one that turns amber.
+        var left_x: f32 = 46 + wordmark_w + 18 + p.textWidth("CONTROL · N1X", .ui_label, 2) + 18;
+        {
+            const built = app.engine_version;
+            const running = if (app.snap.healthy and app.snap.version.len > 0) app.snap.version else "";
+            const mismatch = running.len > 0 and built.len > 0 and !std.mem.eql(u8, running, built);
+            var vbuf: [96]u8 = undefined;
+            const vtext: []const u8 = if (mismatch)
+                std.fmt.bufPrint(&vbuf, "TF {s}  ·  built {s}", .{ running, built }) catch ""
+            else if (running.len > 0)
+                std.fmt.bufPrint(&vbuf, "TF {s}", .{running}) catch ""
+            else if (built.len > 0)
+                std.fmt.bufPrint(&vbuf, "TF {s}", .{built}) catch ""
+            else "";
+            if (vtext.len > 0) {
+                const vc = if (mismatch) theme.pal.amber else if (running.len > 0) theme.pal.green else theme.pal.text_mute;
+                const vw = p.textWidth(vtext, .mono, 0) + 18;
+                p.panel(left_x, 13, vw, 26, 13, theme.pal.panel_sunk, theme.pal.panel_sunk, theme.alpha(vc, 130), null);
+                p.text(vtext, .mono, vc, left_x + 9, 20);
+                left_x += vw + 16;
+            }
+        }
+
+        if (app.server != null or app.attached_port != null) {
+            const m = app.cat.models[app.servingIndex() orelse 0];
+            var up_buf: [64]u8 = undefined;
+            const started: i64 = if (app.server) |s| s.started_ms else app.attached_since_ms;
+            const up_s: u64 = @intCast(@max(0, @divTrunc(util.nowMs(app.io) - started, 1000)));
+            const up = util.fmtDuration(&up_buf, up_s);
+            var head2: [192]u8 = undefined;
+            const htxt = std.fmt.bufPrint(&head2, "{s}  ·  {s}  ·  {d} lanes  ·  ctx {d}  ·  up {s}", .{
+                m.name,
+                if (app.snap.backend.len > 0) app.snap.backend else "cuda",
+                m.profile.parallel,
+                m.profile.context,
+                up,
+            }) catch "";
+            const room = chip_left - 16 - left_x;
+            if (room > 120) p.textFit(htxt, .ui_small, theme.pal.text_dim, left_x, 20, room);
+        }
 
         // ---- left rail -----------------------------------------------------
         p.panel(12, 62, 332, 786, 14, theme.pal.panel_hi, theme.pal.panel_sunk, theme.pal.line, null);

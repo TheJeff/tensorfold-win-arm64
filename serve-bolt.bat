@@ -18,7 +18,7 @@ set "BOLT_DRAFT_Q8=1"
 set "BOLT_NV4_FP4=1"
 set "TENSORFOLD_NO_UPDATE_CHECK=1"
 
-"%ROOT%\tensorfold\zig-out\native\bin\tensorfold-native.exe" serve ^
+"%ROOT%\tensorfold\zig-out-v126\native\bin\tensorfold-native.exe" serve ^
   "%ROOT%\models\Nemotron-3.5-Bolt-74B-A9B-24GB" ^
   --name Nemotron-3.5-Bolt --host 127.0.0.1 --port %PORT% ^
   --parallel %PARALLEL% --context %CONTEXT% --prompt-cache-gib %PROMPT_CACHE_GIB%

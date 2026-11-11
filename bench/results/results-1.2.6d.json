@@ -1,0 +1,68 @@
+{
+  "label": "1.2.6d",
+  "prefill": [
+    {
+      "nominal_tokens": 2000,
+      "prompt_tokens": 2134,
+      "ttft_s": 1.047,
+      "prefill_tps": 2038.3
+    },
+    {
+      "nominal_tokens": 8000,
+      "prompt_tokens": 8339,
+      "ttft_s": 4.095,
+      "prefill_tps": 2036.3
+    },
+    {
+      "nominal_tokens": 32000,
+      "prompt_tokens": 33001,
+      "ttft_s": 17.224,
+      "prefill_tps": 1916.0
+    }
+  ],
+  "streams": [
+    {
+      "streams": 1,
+      "wall_s": 1.78,
+      "tokens": 384,
+      "aggregate_tps": 216.3,
+      "per_stream_decode_tps": [
+        264.7
+      ],
+      "ttft_s": [
+        0.327
+      ]
+    },
+    {
+      "streams": 8,
+      "wall_s": 15.02,
+      "tokens": 3072,
+      "aggregate_tps": 204.5,
+      "per_stream_decode_tps": [
+        280.5,
+        137.6,
+        111.0,
+        143.4,
+        138.3,
+        52.2,
+        137.9,
+        144.9
+      ],
+      "ttft_s": [
+        13.654,
+        10.544,
+        0.659,
+        4.428,
+        10.961,
+        3.289,
+        7.432,
+        0.325
+      ]
+    }
+  ],
+  "reply_hashes": {
+    "streams1": "6e035c11bd458287",
+    "primes": "69577cb06964986c"
+  },
+  "primes_reply": "We need answer user: \"List the first eight prime numbers, comma separated, and nothing else.\" Need final only comma separated first eight primes: 2, 3, 5, 7, 11, 13, 17, 19. Ensure nothing else."
+}

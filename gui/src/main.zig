@@ -7,6 +7,7 @@ const gfx = @import("gfx.zig");
 const app_mod = @import("app.zig");
 const util = @import("util.zig");
 const stats = @import("stats.zig");
+const serve = @import("serve.zig");
 
 var g_app: ?*app_mod.App = null;
 var g_paint: ?gfx.Paint = null;
@@ -197,7 +198,7 @@ fn fillDemo(app: *app_mod.App) void {
         .ok = true,
         .healthy = true,
         .model = "Nemotron-3.5-Bolt",
-        .version = "1.1.6",
+        .version = if (app.engine_version.len > 0) app.engine_version else "dev",
         .backend = "cuda",
         .decode_tps = 88.7,
         .prefill_tps = 2463,
@@ -281,8 +282,10 @@ pub fn main(init: std.process.Init) !void {
     if (w.GdiplusStartup(&g_token, &input, null) != 0) return error.Gdiplus;
 
     const root = findRoot(a, io, init.environ_map);
-    const exe = std.fmt.allocPrint(a, "{s}/tensorfold/zig-out/native/bin/tensorfold-native.exe", .{root}) catch "";
+    const exe = std.fmt.allocPrint(a, "{s}/tensorfold/zig-out-v126/native/bin/tensorfold-native.exe", .{root}) catch "";
     var app = try app_mod.App.init(init.gpa, io, root, exe, init.environ_map);
+    // what the binary on disk is, so the header can name it before anything is served
+    app.engine_version = serve.engineVersion(io, init.gpa, exe, root, init.environ_map);
 
     // before the headless --shot path, so skins apply to captures too
     if (skin.len > 0) {

@@ -94,6 +94,38 @@ pub fn stop(io: std.Io, s: *Server) void {
     s.state = .stopped;
 }
 
+/// The engine binary's own version, asked once at startup: `tensorfold-native --version`
+/// prints `tensorfold-native 1.2.6`, and the header shows what is installed beside what the
+/// running server reports. Empty when the probe fails, so the UI shows nothing rather than a
+/// stale guess.
+pub fn engineVersion(io: std.Io, a: std.mem.Allocator, exe: []const u8, root: []const u8, parent_env: *const std.process.Environ.Map) []const u8 {
+    std.Io.Dir.createDirAbsolute(io, std.fmt.allocPrint(a, "{s}/logs", .{root}) catch return "", std.Io.File.Permissions.default_dir) catch {};
+    const out_path = std.fmt.allocPrint(a, "{s}/logs/.engine-version.txt", .{root}) catch return "";
+    const sink = std.Io.Dir.createFileAbsolute(io, out_path, .{ .truncate = true }) catch return "";
+    var child = std.process.spawn(io, .{
+        .argv = &.{ exe, "--version" },
+        .environ_map = parent_env,
+        .stdin = .ignore,
+        .stdout = .{ .file = sink },
+        .stderr = .{ .file = sink },
+        .create_no_window = true,
+    }) catch {
+        sink.close(io);
+        return "";
+    };
+    sink.close(io);
+    _ = child.wait(io) catch {};
+
+    const file = std.Io.Dir.openFileAbsolute(io, out_path, .{}) catch return "";
+    defer file.close(io);
+    var buf: [256]u8 = undefined;
+    const n = file.readPositionalAll(io, &buf, 0) catch return "";
+    const text = std.mem.trim(u8, buf[0..n], " \t\r\n");
+    // "tensorfold-native 1.2.6" -> "1.2.6"; an unexpected shape is shown as-is, truncated by the caller
+    const version = if (std.mem.lastIndexOfScalar(u8, text, ' ')) |sp| text[sp + 1 ..] else text;
+    return a.dupe(u8, version) catch "";
+}
+
 /// Reads the tail of the serve log for the on-screen log panel.
 pub fn logTail(io: std.Io, a: std.mem.Allocator, path: []const u8, max_bytes: usize) []const u8 {
     var file = std.Io.Dir.openFileAbsolute(io, path, .{}) catch return "";
