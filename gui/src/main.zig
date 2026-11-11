@@ -281,7 +281,7 @@ pub fn main(init: std.process.Init) !void {
     if (w.GdiplusStartup(&g_token, &input, null) != 0) return error.Gdiplus;
 
     const root = findRoot(a, io, init.environ_map);
-    const exe = std.fmt.allocPrint(a, "{s}/tensorfold/zig-out/native/bin/tensorfold-native.exe", .{root}) catch "";
+    const exe = std.fmt.allocPrint(a, "{s}/tensorfold/zig-out-v126/native/bin/tensorfold-native.exe", .{root}) catch "";
     var app = try app_mod.App.init(init.gpa, io, root, exe, init.environ_map);
 
     // before the headless --shot path, so skins apply to captures too

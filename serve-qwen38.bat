@@ -18,7 +18,7 @@ set "TF_FLASHNEXT_DRAFTS=6"
 set "TF_FLASHNEXT_GATHER_READ=pread"
 set "TENSORFOLD_NO_UPDATE_CHECK=1"
 
-"%ROOT%\tensorfold\zig-out\native\bin\tensorfold-native.exe" serve ^
+"%ROOT%\tensorfold\zig-out-v126\native\bin\tensorfold-native.exe" serve ^
   "%ROOT%\models\Qwen3.8-Flash-Next-FP4-Local" ^
   --name Qwen3.8-Flash-Next --host 127.0.0.1 --port %PORT% ^
   --parallel %PARALLEL% --context %CONTEXT% --prompt-cache-gib %PROMPT_CACHE_GIB% ^
