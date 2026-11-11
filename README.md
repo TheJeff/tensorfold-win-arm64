@@ -163,6 +163,11 @@ The GUI build script locates Zig relative to its own directory and is not tied t
 
 ![TensorFold GUI](gui/docs/gui.png)
 
+The GUI's header shows the engine version it is running: a `TF x.y.z` chip beside `CONTROL · N1X`,
+probed from `<exe> --version` while idle, replaced by the server's own `/health` value once one is
+serving or attached, and shown in amber as `TF 1.2.3 · built 1.2.6` when an older server is running
+than the build on disk.
+
 ## Engine 1.2.6 (the default install)
 
 Upstream tagged **v1.2.6** on 2026-11-10, 1406 commits past the v1.2.3 base this guide used to

@@ -64,6 +64,22 @@ row in `themes`.
 
 ![appearance overlay](docs/gui-settings.png)
 
+## Engine version in the header
+
+The header carries a `TF x.y.z` chip beside `CONTROL · N1X`, so the running engine is never a
+guess:
+
+- **nothing served** — the version of the binary the GUI would launch, probed once at start with
+  `<exe> --version` (dim grey). An unreadable binary shows no chip rather than a stale number.
+- **serving/attached and matching** — the version the server reports on `/health` (green), which is
+  the authoritative answer to "what am I talking to".
+- **mismatch** — `TF 1.2.3 · built 1.2.6` in amber: an older server is running while a newer engine
+  sits on disk. That is the state worth catching after a rebuild, because the engine path in
+  `src/main.zig` (and `models.json`'s `exe` receipt) decide what a new load will use.
+
+`serve.engineVersion` writes the probe's output to `logs/.engine-version.txt` and parses the last
+token, so `tensorfold-native 1.2.6` becomes `1.2.6`.
+
 ## Model rail
 
 - Scans `models/`, reads each checkpoint's `config.json` and optional `hf_quant_config.json`
