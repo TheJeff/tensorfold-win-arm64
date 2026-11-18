@@ -54,10 +54,15 @@ fn ctxFor(a: std.mem.Allocator, cat: models.Catalog, m: models.Model) !Ctx {
     };
 }
 
-/// One template token to zero or more argv entries. An unknown {token} is left as its own
-/// text, so a typo surfaces as a rejected argument in the log rather than vanishing.
-fn fill(a: std.mem.Allocator, tok: []const u8, c: Ctx) ![]const []const u8 {
-    if (std.mem.indexOfScalar(u8, tok, '{') == null) return &.{tok};
+/// Appends one template token to the argv. An unknown {token} is left as its own text, so a
+/// typo surfaces as a rejected argument in the log rather than vanishing.
+///
+/// This appends rather than returning `&.{...}`: an array literal built here lives in this
+/// frame, so handing back a pointer to it left the caller reading a dead slice header. That
+/// survived a Debug build and segfaulted inside CreateProcess in ReleaseFast -- the LOAD
+/// button did nothing because the GUI died on the click.
+fn fillInto(a: std.mem.Allocator, argv: *std.ArrayList([]const u8), tok: []const u8, c: Ctx) !void {
+    if (std.mem.indexOfScalar(u8, tok, '{') == null) return argv.append(a, tok);
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < tok.len) {
@@ -75,7 +80,7 @@ fn fill(a: std.mem.Allocator, tok: []const u8, c: Ctx) ![]const []const u8 {
         try out.append(a, tok[i]);
         i += 1;
     }
-    return &.{out.items};
+    return argv.append(a, out.items);
 }
 
 /// The command this GUI would run: the engine binary, then the template -- the model's
@@ -91,7 +96,7 @@ pub fn buildArgv(a: std.mem.Allocator, cat: models.Catalog, m: models.Model) ![]
             for (m.profile.extra_args) |x| try argv.append(a, x);
             continue;
         }
-        for (try fill(a, tok, c)) |t| try argv.append(a, t);
+        try fillInto(a, &argv, tok, c);
     }
     return argv.items;
 }
