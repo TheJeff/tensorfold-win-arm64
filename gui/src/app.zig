@@ -155,7 +155,7 @@ pub const App = struct {
             .cat_arena = arena,
             .serve_arena = std.heap.ArenaAllocator.init(gpa),
         };
-        app.cat = models.load(io, arena.allocator(), root, exe);
+        app.cat = models.load(io, arena.allocator(), root, exe, parent_env);
         settings.load(io, root, arena.allocator());
         app.nvml = gpu.Nvml.open();
         app.gpu_info = app.nvml.sample();
@@ -309,7 +309,7 @@ pub const App = struct {
         const root = app.cat.root;
         const exe = app.cat.exe;
         _ = app.cat_arena.reset(.retain_capacity);
-        app.cat = models.load(app.io, app.cat_arena.allocator(), root, exe);
+        app.cat = models.load(app.io, app.cat_arena.allocator(), root, exe, app.parent_env);
         if (app.selected >= app.cat.models.len) app.selected = 0;
         app.setStatus("model folder rescanned", theme.pal.text_mute);
     }
@@ -880,9 +880,16 @@ pub const App = struct {
                     y += row_h;
                 }
                 if (show_flags) {
-                    p.textTracking("FLAGS", .ui_label, theme.pal.text_mute, 38, y, 1);
-                    var fl_buf: [192]u8 = undefined;
-                    const flags = std.fmt.bufPrint(&fl_buf, "--parallel {d} --context {d} --prompt-cache-gib {d} --dashboard", .{ m.profile.parallel, m.profile.context, m.profile.cache_gib }) catch "";
+                    // Name the file the template came from, so it is obvious what to edit.
+                    var src_buf: [80]u8 = undefined;
+                    const lbl = std.fmt.bufPrint(&src_buf, "FLAGS · {s}", .{std.fs.path.basename(app.cat.serve_src)}) catch "FLAGS";
+                    p.textTracking(lbl, .ui_label, theme.pal.text_mute, 38, y, 1);
+                    // Derived from the argv that will actually be spawned. The previous
+                    // hand-written summary listed --parallel/--context/--prompt-cache-gib/
+                    // --dashboard whether or not that was what got launched, so an edit to
+                    // serve.json would have left the panel cheerfully lying.
+                    var fl_buf: [1024]u8 = undefined;
+                    const flags = serve.flagsBuf(&fl_buf, app.cat, m.*);
                     p.textFit(flags, .mono, theme.pal.text_dim, 38, y + 12, 280);
                     y += row_h;
                 }

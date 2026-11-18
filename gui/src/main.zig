@@ -8,6 +8,7 @@ const app_mod = @import("app.zig");
 const util = @import("util.zig");
 const stats = @import("stats.zig");
 const serve = @import("serve.zig");
+const models = @import("models.zig");
 
 var g_app: ?*app_mod.App = null;
 var g_paint: ?gfx.Paint = null;
@@ -256,6 +257,8 @@ pub fn main(init: std.process.Init) !void {
     var wait_s: u32 = 0;
     var skin: []const u8 = "";
     var open_settings = false;
+    var plan_index: ?usize = null;
+    var plan_out: []const u8 = "";
     for (argv, 0..) |arg, i| {
         if (std.mem.eql(u8, arg, "--shot")) {
             shot = true;
@@ -270,7 +273,45 @@ pub fn main(init: std.process.Init) !void {
             if (i + 1 < argv.len) skin = argv[i + 1];
         } else if (std.mem.eql(u8, arg, "--settings")) {
             open_settings = true;
+        } else if (std.mem.eql(u8, arg, "--plan")) {
+            if (i + 1 < argv.len) plan_index = std.fmt.parseInt(usize, argv[i + 1], 10) catch null;
+        } else if (std.mem.eql(u8, arg, "--plan-out")) {
+            if (i + 1 < argv.len) plan_out = argv[i + 1];
         }
+    }
+
+    // --plan <n> prints the command this GUI would spawn for model n, then exits without
+    // opening a window or touching the GPU. The launch command is data now, so this is how
+    // you prove an edit to serve.json took effect -- and how serve-*.bat can borrow the
+    // GUI's decisions instead of hardcoding a second copy that can drift.
+    if (plan_index) |idx| {
+        const proot = findRoot(a, io, init.environ_map);
+        const pexe = std.fmt.allocPrint(a, "{s}/tensorfold/zig-out-v126/native/bin/tensorfold-native.exe", .{proot}) catch return;
+        const pcat = models.load(io, a, proot, pexe, init.environ_map);
+        if (idx >= pcat.models.len) {
+            std.debug.print("no model {d}: the catalog has {d}\n", .{ idx, pcat.models.len });
+            return;
+        }
+        const pm = pcat.models[idx];
+        const line = try std.fmt.allocPrint(a, "{s}\n# template: {s}\n", .{
+            try serve.planText(a, pcat, pm),
+            pcat.serve_src,
+        });
+        // This is a windows-subsystem binary: it has no console, so std.debug.print goes
+        // nowhere when it is launched from a shell. So the plan goes to a file -- where
+        // you point it with --plan-out, defaulting to a name beside the GUI's own logs.
+        var dest = plan_out;
+        var fb: [512]u8 = undefined;
+        if (dest.len == 0) {
+            dest = std.fmt.bufPrint(&fb, "{s}/logs/gui-plan-{d}.txt", .{ proot, idx }) catch return;
+        }
+        std.Io.Dir.createDirAbsolute(io, std.fs.path.dirname(dest) orelse proot, std.Io.File.Permissions.default_dir) catch {};
+        if (std.Io.Dir.openDirAbsolute(io, std.fs.path.dirname(dest) orelse "", .{})) |dir| {
+            var dd = dir;
+            defer dd.close(io);
+            dd.writeFile(io, .{ .sub_path = std.fs.path.basename(dest), .data = line }) catch {};
+        } else |_| {}
+        return;
     }
 
     std.debug.print("argv:", .{});

@@ -1,9 +1,25 @@
 //! Model inventory: scans the repo's models folder, reads checkpoint metadata,
 //! and merges per-model launch profiles from gui/models.json.
 const std = @import("std");
+const win = @import("win32.zig");
 const util = @import("util.zig");
 
 pub const EnvVar = struct { key: []const u8, value: []const u8 };
+
+/// The serve command line as data instead of as Zig. Placeholders are filled per model
+/// -- {dir} {name} {port} {parallel} {context} {cache_gib} {root} -- and {extra_args}
+/// expands to that model's own extra_args list, possibly to nothing. Every other token
+/// is passed through verbatim, so adding an engine flag is an edit to a JSON file and
+/// not a rebuild of the GUI.
+pub const default_argv = [_][]const u8{
+    "serve",              "{dir}",              "--name",             "{name}",
+    "--host",             "127.0.0.1",          "--port",             "{port}",
+    "--parallel",         "{parallel}",         "--context",          "{context}",
+    "--prompt-cache-gib", "{cache_gib}",        "--dashboard",        "--metrics-open",
+    "{extra_args}",
+};
+
+pub const serve_rel = "gui/serve.json";
 
 pub const Profile = struct {
     port: u16 = 8082,
@@ -12,6 +28,8 @@ pub const Profile = struct {
     cache_gib: u32 = 4,
     env: []const EnvVar = &.{},
     extra_args: []const []const u8 = &.{},
+    /// Empty means "use the catalog template". Set it to give one model its own command.
+    argv: []const []const u8 = &.{},
 };
 
 pub const Model = struct {
@@ -30,9 +48,97 @@ pub const Catalog = struct {
     root: []const u8,
     models: []Model,
     warnings: []const []const u8,
+    serve_argv: []const []const u8 = &default_argv,
+    /// Which file the template was read from, so the UI can name it rather than guess.
+    serve_src: []const u8 = "(built-in default)",
 };
 
 pub const config_rel = "gui/models.json";
+
+/// Directory holding this GUI's own exe. serve.json beside the exe wins over the one in
+/// gui/, which keeps the launch command editable even from a build tree that is not a
+/// checkout -- the exe is the thing you actually run, so its neighbourhood is where you
+/// look for it.
+pub fn selfExeDir(a: std.mem.Allocator) ?[]const u8 {
+    var buf: [1024]u16 = undefined;
+    const n = win.GetModuleFileNameW(null, &buf, buf.len);
+    if (n == 0 or n >= buf.len) return null;
+    const path = std.unicode.utf16LeToUtf8Alloc(a, buf[0..n]) catch return null;
+    return std.fs.path.dirname(path) orelse ".";
+}
+
+/// The argv template, from the first place it is found. Order matters and is deliberate:
+/// an explicit override, then beside the exe you are running, then the checked-in one.
+fn loadServeArgv(
+    a: std.mem.Allocator,
+    io: std.Io,
+    root: []const u8,
+    env: ?*const std.process.Environ.Map,
+) struct { argv: []const []const u8, src: []const u8 } {
+    var cand: [4][]const u8 = .{ "", "", "", "" };
+    var n: usize = 0;
+    if (env) |e| {
+        if (e.get("TENSORFOLD_GUI_SERVE_JSON")) |p| {
+            if (p.len > 0) {
+                cand[n] = p;
+                n += 1;
+            }
+        }
+    }
+    if (selfExeDir(a)) |d| {
+        cand[n] = std.fmt.allocPrint(a, "{s}/serve.json", .{d}) catch "";
+        n += 1;
+    }
+    cand[n] = std.fmt.allocPrint(a, "{s}/{s}", .{ root, serve_rel }) catch "";
+    n += 1;
+    cand[n] = std.fmt.allocPrint(a, "{s}/serve.json", .{root}) catch "";
+    n += 1;
+
+    for (cand[0..n]) |path| {
+        if (path.len == 0) continue;
+        const d = std.fs.path.dirname(path) orelse continue;
+        const base = std.fs.path.basename(path);
+        var dir = std.Io.Dir.openDirAbsolute(io, d, .{}) catch continue;
+        defer dir.close(io);
+        const text = dir.readFileAlloc(io, base, a, .limited(1 << 20)) catch continue;
+        const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, text, .{}) catch continue;
+        const list = objGet(parsed, "argv") orelse continue;
+        switch (list) {
+            .array => |arr| {
+                if (arr.items.len == 0) continue;
+                const out = a.alloc([]const u8, arr.items.len) catch continue;
+                var bad = false;
+                for (arr.items, 0..) |v, k| {
+                    const s = strOf(v);
+                    if (s.len == 0) bad = true else out[k] = s;
+                }
+                if (bad) continue; // a null or "" token would pass an empty argument
+                return .{ .argv = out, .src = path };
+            },
+            else => continue,
+        }
+    }
+    return .{ .argv = &default_argv, .src = "(built-in default)" };
+}
+
+/// First run writes the template next to models.json so there is something to edit.
+/// It never overwrites: a malformed serve.json must stay on disk to be read and fixed.
+fn writeServeDefaults(a: std.mem.Allocator, io: std.Io, root: []const u8) void {
+    var dir = std.Io.Dir.openDirAbsolute(io, root, .{}) catch return;
+    defer dir.close(io);
+    if (dir.statFile(io, serve_rel, .{})) |_| {
+        return; // present, valid or not -- the user's file is theirs
+    } else |_| {}
+    var out: std.Io.Writer.Allocating = .init(a);
+    const wr = &out.writer;
+    wr.writeAll("{\n  \"argv\": [\n") catch return;
+    for (default_argv, 0..) |t, i| {
+        wr.print("    \"{s}\"{s}\n", .{ t, if (i + 1 < default_argv.len) "," else "" }) catch return;
+    }
+    wr.writeAll("  ]\n}\n") catch return;
+    dir.writeFile(io, .{ .sub_path = serve_rel, .data = out.written() }) catch {};
+}
+
 
 fn readJson(a: std.mem.Allocator, io: std.Io, dir: std.Io.Dir, name: []const u8) ?std.json.Value {
     const text = dir.readFileAlloc(io, name, a, .limited(64 << 20)) catch return null;
@@ -191,6 +297,21 @@ fn applyConfig(a: std.mem.Allocator, io: std.Io, root: []const u8, models: []Mod
                         },
                         else => {},
                     };
+                    // A model may carry its whole command, which is how one checkpoint
+                    // gets --vision while its sibling stays text-only.
+                    if (objGet(item, "argv")) |av| switch (av) {
+                        .array => |arr3| {
+                            if (arr3.items.len == 0) continue;
+                            var list4 = a.alloc([]const u8, arr3.items.len) catch continue;
+                            var ok = true;
+                            for (arr3.items, 0..) |v, i| {
+                                const s = strOf(v);
+                                if (s.len == 0) ok = false else list4[i] = s;
+                            }
+                            if (ok) m.profile.argv = list4;
+                        },
+                        else => {},
+                    };
                 }
             }
         },
@@ -213,7 +334,17 @@ pub fn save(a: std.mem.Allocator, io: std.Io, cat: Catalog) void {
         for (m.profile.extra_args, 0..) |x, j| {
             w.print("{s}\"{s}\"", .{ if (j == 0) "" else ", ", x }) catch return;
         }
-        w.print("]\n    }}{s}\n", .{if (i + 1 < cat.models.len) "," else ""}) catch return;
+        w.print("]", .{}) catch return;
+        // Round-trip it: the GUI rewrites models.json on save, and dropping argv here
+        // would silently delete a per-model command the moment anyone clicked Save.
+        if (m.profile.argv.len > 0) {
+            w.print(",\n      \"argv\": [", .{}) catch return;
+            for (m.profile.argv, 0..) |x, j| {
+                w.print("{s}\"{s}\"", .{ if (j == 0) "" else ", ", x }) catch return;
+            }
+            w.print("]", .{}) catch return;
+        }
+        w.print("\n    }}{s}\n", .{if (i + 1 < cat.models.len) "," else ""}) catch return;
     }
     w.print("  ]\n}}\n", .{}) catch return;
     var dir = std.Io.Dir.openDirAbsolute(io, cat.root, .{}) catch return;
@@ -239,7 +370,7 @@ fn writeDefaults(a: std.mem.Allocator, io: std.Io, root: []const u8, exe: []cons
     dir.writeFile(io, .{ .sub_path = config_rel, .data = out.written() }) catch {};
 }
 
-pub fn load(io: std.Io, a: std.mem.Allocator, root: []const u8, exe: []const u8) Catalog {
+pub fn load(io: std.Io, a: std.mem.Allocator, root: []const u8, exe: []const u8, opt_env: ?*const std.process.Environ.Map) Catalog {
     var warnings: std.ArrayList([]const u8) = .empty;
     var models: std.ArrayList(Model) = .empty;
     var drafters: std.ArrayList(struct { name: []const u8, dir: []const u8 }) = .empty;
@@ -336,10 +467,15 @@ pub fn load(io: std.Io, a: std.mem.Allocator, root: []const u8, exe: []const u8)
     };
     if (!cfg_exists) writeDefaults(a, io, root, exe, models.items);
 
+    const tmpl = loadServeArgv(a, io, root, opt_env);
+    if (std.mem.eql(u8, tmpl.src, "(built-in default)")) writeServeDefaults(a, io, root);
+
     return .{
         .exe = exe,
         .root = root,
         .models = models.items,
         .warnings = warnings.items,
+        .serve_argv = tmpl.argv,
+        .serve_src = tmpl.src,
     };
 }

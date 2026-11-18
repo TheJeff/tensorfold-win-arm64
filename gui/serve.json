@@ -1,0 +1,21 @@
+{
+  "argv": [
+    "serve",
+    "{dir}",
+    "--name",
+    "{name}",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "{port}",
+    "--parallel",
+    "{parallel}",
+    "--context",
+    "{context}",
+    "--prompt-cache-gib",
+    "{cache_gib}",
+    "--dashboard",
+    "--metrics-open",
+    "{extra_args}"
+  ]
+}
