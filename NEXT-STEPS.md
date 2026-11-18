@@ -253,51 +253,90 @@ specific. **Check sourcing before budgeting any build time**, and check whether 
 **Verify:** a PDF through the document path with `--vision --vision-pdf`; the request should be
 accepted rather than answered with `PdfiumLibraryUnavailable`.
 
-## Why images still do not work here — the decoder was not the blocker
+## How to make images work here — three things, and only one of them was the decoder
 
-The decoders above are necessary but **not sufficient**, and measuring this was the real finding of
-2026-11-17. Booting Qwen3.8 Flash Next with `--vision` does not degrade gracefully — it refuses to
-load at all:
+Measured 2026-11-17: images work end to end on this box, and the path is scripted. Three things are
+required, and the decoders were never the whole story:
+
+1. **The decoders** — `turbojpeg.dll` 3.1.4.1 and `libwebpdecoder.dll` 1.6.0 from `build-jpeg.bat` /
+   `build-webp.bat`, pixel-exact against Pillow. `libwebpdecoder` needs `TENSORFOLD_LIBWEBP` because
+   `core/picture/webp.zig:20` has no Windows branch.
+2. **`--vision` on the serve command** — from the model's `extra_args` in `gui/models.json`, spliced
+   onto the template in `gui/serve.json`. Both are read when the GUI **starts**.
+3. **A checkpoint whose vision tower is bf16** — the one that was missing, and the reason `--vision`
+   on the stock checkpoint aborts the entire load instead of degrading gracefully:
 
 ```
 error: model.visual.blocks.0.attn.qkv.weight: f8_e4m3 { 3456, 1152 }, expected bf16 { 3456, 1152 }
 tensorfold: the native CUDA engine cannot load ...\Qwen3.8-Flash-Next-FP4-Local (UnexpectedTensor)
 ```
 
-Three facts, each measured:
+ModelOpt quantised the tower: 499 `model.visual.*` tensors, of which 333 are weights and 166 are
+`weight_scale` twins, in two formats — MXFP8 (`F8_E4M3` weight + `U8` E8M0 scale, group 32) and NVFP4
+(`U8` packed weight + `F8_E4M3` scale, group 16, plus `weight_scale_2`). The checkpoint's
+`quantization_config.ignore` has 10 entries and **none of them mention visual**, while
+`vision_config.dtype` still says `bfloat16`. The export simply did not exclude the tower.
 
-1. **The vision tower is FP8-quantized in this checkpoint.** 499 `model.visual.*` tensors, with
-   matching `model.visual.*.weight_scale` tensors — ModelOpt quantised them. The checkpoint's
-   `quantization_config.ignore` has 10 entries and **none of them mention visual or vision**, so the
-   export simply did not exclude the tower.
-2. **The RADIO loader accepts only bf16.** `families/radio/weights.zig` `get()` tests
-   `t.is(.bf16, shape)` and otherwise logs the message above and returns `error.UnexpectedTensor`.
-   There is no FP8 path to widen — unlike `take()`'s `widen`, which only turns bf16 into f32.
-3. **The Bolt checkpoint has no vision tower at all.** Scanning its shards finds **0** visual
-   tensors, despite `config.json` carrying a full `vision_config` (it is
-   `NemotronH_Omni_Reasoning_V3`). So the earlier claim in this file that "the RADIO tower loads fine
-   here" is **wrong for the checkpoints on this box** — there is nothing to load.
+**Correction to this file's earlier claim.** The rejection is *not* in `families/radio/weights.zig` —
+that is the Bolt/RADIO path, and Bolt's checkpoint has **0** visual tensors anyway despite advertising
+a full `vision_config`. The real site is `vision/qwen_cuda_weights.zig:36`, whose `Reader.get()` calls
+`r.ck.expect(name, .bf16, shape)` and returns `error.UnexpectedTensor` on anything else. The same
+loader demands exactly **333** tensors (`3 + 27×12 + 6`) and at `:80` fails with
+`error.UnusedVisionTensors` if any visual tensor is left unread — which is why the scale twins have to
+be *deleted*, not merely ignored.
 
-So on this machine neither served checkpoint can take an image: Qwen's tower is the wrong dtype,
-Bolt's is absent. `turbojpeg.dll` and `libwebpdecoder.dll` are still required the moment either is
-fixed, and both are byte-exact verified — they are just no longer the only thing missing.
+### The splice — `scripts/splice-vision-tower.py`
 
-**Three ways forward, cheapest first:**
+Takes the 333 bf16 visual tensors out of the QAD checkpoint's shard 21 and appends them to a copy of
+FP4-Local's shard 15. Non-destructive: the original is verified to still hold its 499 quantised
+tensors afterwards.
 
-- **Re-export with the tower excluded.** Add `model.visual.*` (and the equivalent for RADIO) to the
-  ModelOpt `ignore` list. A 27-layer, hidden-1152 tower quantised to FP8 saves very little of a
-  102 GB checkpoint and currently costs the entire vision feature. This needs no engine change and is
-  the recommended fix.
-- **Splice bf16 visual weights** from the pre-quantisation checkpoint into these shards. The RADIO
-  loader only asks for bf16, so a hybrid checkpoint satisfies it.
-- **Teach the RADIO loader FP8.** Real engine work: an f8_e4m3 widening path plus whatever the vision
-  matmuls need. Worth checking upstream first — the family list advertises `minimax_m3_vl` and
-  `lfm2_vl`, so some vision paths are supported, and this may already be solved for another backend.
+- the source data section is kept verbatim and original offsets are reused, so the 74,742 non-visual
+  tensors are byte-identical **by construction** rather than by comparison
+- the 499 quantised visual tensors are dropped and the 333 bf16 ones appended
+- `config.json` is rewritten: `ignore` 10 → 11 (adds `model.visual*`), `quantized_layers` 545 → 435
+- `model.safetensors.index.json` is patched, dropping the 166 stale `weight_scale` entries
+  (375,487 → 375,321 names) — leaving them in is the failure this script's own verifier caught
+- everything else is hardlinked: 70 files, 66 links, **5.41 GiB** of actual disk
+- `verify()` re-reads the output and runs 15 checks ending in `SPLICE OK`
 
-**Operational gotcha found the same way:** `gui/models.json` is read when the **GUI starts**. Editing
-it and then restarting only the *server* leaves the GUI serving a stale in-memory catalog — observed
-directly, a running `tensorfold-native` whose command line had no `--vision` even though `models.json`
-specified it. Restart the GUI, or launch the engine directly.
+Where the bf16 came from: `nvidia/Qwen3.8-Flash-Next-NVFP4-QAD` lists `model.visual*` in its *own*
+`ignore`, so its tower survived quantisation, and its `vision_config` is identical to FP4-Local's.
+Only its 0.84 GiB shard 21 is ever read — the 120.8 GiB model is never loaded. That sidestep is the
+whole reason this route beats "just serve QAD" on a 96 GB box.
+
+```
+python scripts/splice-vision-tower.py
+tests\engine\verify-engine.ps1 -Tier Serve -Attach http://127.0.0.1:8889 `
+    -Model models\Qwen3.8-Flash-Next-FP4-Local-vision
+```
+
+Measured here: **0 failed, 0 warned** — `photo.jpg`, `photo.webp` and `photo_lossless.webp` each
+decoded and answered, and `truncated.jpg`, `cmyk.jpg`, `corrupt.webp` each refused with 400. Proof the
+tower is really reading pixels rather than pattern-matching the prompt:
+
+> A grainy, split-screen image displays a green square and magenta circle on the left, with a faint
+> blue rectangle on the right, all set against a noisy, gradient background.
+
+### Still open
+
+- **Route B — teach the loader quantised vision.** `vision/qwen_cuda_weights.zig` should accept MXFP8
+  and NVFP4 and dequantise into its bf16 sink, making the splice unnecessary. Upstream already does
+  this for another family: `families/glm/cuda_vision.zig:555` maps `model.visual.*` to `.mxfp8` /
+  `.w4a16_nvfp4`, with `core/quant/keys.zig` canonicalising the prefix — so the format code exists.
+  Host-testable by extending `vision/qwen_cuda_weights_fixture.zig`, which already emits a synthetic
+  tower. Engine work, so: ATC issue, claim, `atc who` overlap check, PR pre-flight.
+- **Route C — report the packaging bug.** An exporter that quantises a tower while `vision_config`
+  still advertises `bfloat16` will strand every user who trusts that field.
+- **Reclaim 3.6 GiB.** `downloads/qad-vision/` is fully embedded in the spliced checkpoint; delete it
+  once you trust the output, and re-fetch shard 21 alone if you ever need to rebuild.
+
+**Operational gotcha, found the hard way:** `gui/models.json` **and** `gui/serve.json` are read when
+the GUI **starts**. Editing them and then restarting only the *server* leaves the GUI holding a stale
+in-memory catalog — observed directly: a running `tensorfold-native` whose command line had no
+`--vision` even though `models.json` specified it. Restart the GUI (or use the Reload action, which
+re-reads both), or launch the engine directly. To check what the GUI *would* run without touching the
+GPU: `tensorfold-gui.exe --plan <n> --plan-out plan.txt`.
 
 Note also that `tensorfold-native serve --help` **omits** `--vision`, `--vision-urls`, `--vision-pdf`,
 `--vision-max-images` and `--vision-image-tokens` from its usage text while `server/cli.zig:479`
@@ -325,7 +364,7 @@ Three tiers, cheapest first:
 | `Decode` | ~5 s, no GPU | `pixel-parity.py`: the built decoders reproduce Pillow's pixels **byte for byte** |
 | `Serve` | minutes, GPU | boots a model, proves JPEG and WebP survive the vision tower into a reply, and that bad input is **refused** |
 
-Two design points worth keeping:
+Three design points worth keeping:
 
 - **It reads `gui/models.json` and applies that model's `env` before probing.** Without this,
   `capabilities` reports libwebp missing when the GUI would have supplied it via
@@ -337,6 +376,13 @@ Two design points worth keeping:
   built DLLs through ctypes using the same signatures `jpeg.zig` and `webp.zig` declare — including
   `tj3Decompress8`'s caller-owned `[*]u8` buffer at `jpeg.zig:40`, which is not the allocating
   `tjDecompress2` habit and will fault the process if written wrong.
+
+- **Image checks send `chat_template_kwargs {enable_thinking: false}`.** This is a thinking model, and
+  `max_tokens` counts reasoning *and* answer, so a small budget returns `finish_reason=length` with
+  `content` empty and every word in `reasoning_content`. The image assertions then fail with "empty
+  reply" and look *exactly* like a decoder bug — which is how it cost a full debugging cycle before it
+  was identified. Positive and negative calls both disable thinking, and the failure text now prints
+  `reasoning_content` too, so this cannot masquerade as an image defect again.
 
 `Serve` includes the negative cases, because silently accepting these is a real defect rather than a
 curiosity: `truncated.jpg` (no EOI — `jpeg.zig:158` must refuse), `cmyk.jpg` (4 components —
