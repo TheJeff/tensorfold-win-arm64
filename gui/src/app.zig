@@ -857,8 +857,12 @@ pub const App = struct {
                 var y = rg.plan_y + 25;
                 const row_h: f32 = 30;
                 const show_engine = rg.plan_h >= 150;
-                const show_drafter = rg.plan_h >= 190;
-                const show_flags = rg.plan_h >= 235;
+                // FLAGS outranks DRAFTER on purpose. The launch command is data now
+                // (gui/serve.json), and this row is the only place the GUI says which
+                // file is in force -- hiding it while showing a decorative drafter line
+                // would spend the scarce height on the least actionable of the two.
+                const show_drafter = rg.plan_h >= 235;
+                const show_flags = rg.plan_h >= 190;
                 const show_env = rg.plan_h >= 170;
 
                 var ep_buf: [96]u8 = undefined;

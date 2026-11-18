@@ -363,6 +363,7 @@ Three tiers, cheapest first:
 | `Probes` | ~2 s, no GPU | the binary answers, `capabilities --json` parses, chip is `nvidia-sm121`, cuda backend present, every optional library is where expected, and all 15 serve flags the launchers depend on still exist |
 | `Decode` | ~5 s, no GPU | `pixel-parity.py`: the built decoders reproduce Pillow's pixels **byte for byte** |
 | `Serve` | minutes, GPU | boots a model, proves JPEG and WebP survive the vision tower into a reply, and that bad input is **refused** |
+| `Vision` | ~20 s, no GPU | `vision-probe.py` against a server that is already up (`-Attach`): five facts that exist **only in the pixels**, an image-vs-text prompt-token delta, both decoders, and broken input refused |
 
 Three design points worth keeping:
 

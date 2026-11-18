@@ -18,6 +18,10 @@
     Serve   (minutes, GPU)   boots a model and proves images survive the vision
                              tower into a reply, plus the negative cases: a JPEG with
                              no end marker and a CMYK JPEG must both be refused.
+    Vision  (~20 s, no GPU)  ground-truth reading against a server that is already up:
+                             five facts that exist only in the pixels, an image-vs-text
+                             prompt-token delta, both decoders, and broken input
+                             refused. Attached-only -- it never boots anything.
 
   FAILs are things that should stop a promotion. WARNs are known-absent optional
   pieces (video and PDF are not built) and do not fail the run.
@@ -49,7 +53,7 @@ param(
     [string] $Model = 'C:\Projects\tensorfold-win-arm64\models\Qwen3.8-Flash-Next-FP4-Local',
     [string] $Name = 'verify-engine',
     [int]    $Port = 8099,
-    [ValidateSet('Probes', 'Decode', 'Serve', 'All')] [string] $Tier = 'Probes',
+    [ValidateSet('Probes', 'Decode', 'Serve', 'Vision', 'All')] [string] $Tier = 'Probes',
     [string] $Python = 'C:\Users\imkoa\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe',
     [string] $Config = 'C:\Projects\tensorfold-win-arm64\gui\models.json',
     [switch] $KeepServing,
@@ -109,7 +113,7 @@ if (Test-Path $Config) {
             Pass 'launch env applied' (($entry.env.PSObject.Properties.Name) -join ' ')
         }
         if (@($entry.extra_args) -contains '--vision') { Pass '--vision is in extra_args' }
-        else { Warn '--vision is in extra_args' 'no images on this model. Do not just add it: with an FP8 vision tower the checkpoint refuses to load at all -- see NEXT-STEPS.md "Why images still do not work here"' }
+        else { Warn '--vision is in extra_args' 'no images on this model. Do not just add it: with an FP8 vision tower the checkpoint refuses to load at all -- see NEXT-STEPS.md "How to make images work here"' }
         if (-not $env:TENSORFOLD_LIBWEBP) {
             Fail 'models.json sets TENSORFOLD_LIBWEBP' 'webp.zig:20 has no Windows name, so the env var is the only route'
         }
@@ -182,14 +186,18 @@ if ($Tier -in 'Decode', 'All') {
 }
 
 # ---------------------------------------------------------------------------- Serve
-if ($Tier -in 'Serve', 'All') {
+if ($Tier -in 'Serve', 'Vision', 'All') {
     # -Attach runs the same assertions against a server someone else started -- the
     # GUI's, for instance. Useful and safer: it proves what is running without putting
     # the GPU through a reload. The GPU guards below only apply when we boot our own.
     $launched = $false
     $p = $null
+    if ($Tier -eq 'Vision' -and -not $Attach) {
+        Fail 'Vision tier needs a server to talk to' 'pass -Attach http://127.0.0.1:PORT, or use -Tier Serve to boot one'
+        exit $fails
+    }
     if ($Attach) {
-        Step "Serve (attached to $Attach)"
+        Step "$(if ($Tier -eq 'Vision') { 'Vision' } else { 'Serve' }) (attached to $Attach)"
     } else {
         Step 'Serve (needs the GPU and a few minutes)'
         if (-not (Test-Path $Model)) { Fail 'model directory exists' $Model; exit $fails }
@@ -334,6 +342,20 @@ if ($Tier -in 'Serve', 'All') {
             } catch {
                 Pass "$($neg.file) refused ($($neg.why))" ($_.Exception.Message -replace '\s+', ' ')
             }
+        }
+        # Ground truth. Fluent prose proves nothing -- a model that ignored the image
+        # would still describe one -- so this asks questions whose answers exist only in
+        # the pixels, drawn by the code that knows the answers, and asserts that an image
+        # prompt actually costs more tokens than the same prompt without one.
+        $probe = Join-Path $PSScriptRoot 'vision-probe.py'
+        if (-not (Test-Path $probe)) { Fail 'vision-probe.py present' }
+        elseif (-not (Test-Path $Python)) { Warn 'python for vision-probe' "$Python not found -- skipping" }
+        elseif (-not $imagesWorked) { Warn 'vision probe' 'skipped -- no valid image decoded' }
+        else {
+            & $Python -u $probe --url $baseUrl --fixtures $fixtures `
+                --card-out (Join-Path $logdir 'vision-card.png')
+            if ($LASTEXITCODE -eq 0) { Pass 'vision probe (ground truth)' '5 facts, token delta, 3 refusals' }
+            else { Fail 'vision probe (ground truth)' "exit $LASTEXITCODE -- see the lines above" }
         }
     } finally {
         if (-not $launched) { Write-Host '  attached server left running (we did not start it)' -ForegroundColor DarkGray }
