@@ -1,0 +1,56 @@
+# Normalise line endings in the repository so a clone is reproducible regardless of
+# each contributor's core.autocrlf. Text is stored LF; the worktree form is decided
+# per type below.
+#
+# This file used to be missing, which is why README.md told people to clone with
+# `git -c core.autocrlf=false`: on a Windows box with core.autocrlf=true a checkout
+# rewrote the recipe patches to CRLF and git apply then failed. The "*.patch eol=lf"
+# rule below fixes that properly, so the workaround is no longer load-bearing.
+
+* text=auto
+
+# Windows batch files are run by cmd.exe, which is unhappy with bare LF in some
+# constructs, and these are the scripts the whole build path depends on.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Consumed by git apply / bash, both of which want LF, and neither of which cares
+# what platform it is running on.
+*.patch text eol=lf
+*.diff  text eol=lf
+*.sh    text eol=lf
+
+# Source and data: LF everywhere. Zig and Python both accept CRLF, but pinning it
+# keeps diffs quiet when someone builds on Windows and commits.
+*.zig  text eol=lf
+*.py   text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.toml text eol=lf
+
+# Never let git's newline handling touch a binary. These are declared explicitly
+# rather than left to auto-detection, so a future vendored library cannot be
+# silently "fixed" into corruption -- the test fixtures under tests/engine/
+# and the GUI assets are exactly the kind of thing that must stay byte-identical.
+*.png        -text
+*.jpg        -text
+*.jpeg       -text
+*.webp       -text
+*.gif        -text
+*.ico        -text
+*.dll        -text
+*.lib        -text
+*.exe        -text
+*.pdb        -text
+*.obj        -text
+*.res        -text
+*.safetensors -text
+*.gguf       -text
+*.npz        -text
+*.gz         -text
+*.zip        -text
+
+# Diff noise that is never worth reviewing.
+gui/zig-cache diff=-text merge=-text
+models.json diff=text
