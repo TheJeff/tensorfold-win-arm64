@@ -83,18 +83,23 @@ vtable our `bolt_native.zig` implements is **byte-identical** between v1.2.3 and
 (`zig/src/core/lanes/backend.zig` has no diff), so the 580-line Bolt backend needs no API work this
 time — unlike the v1.1.6 → 1.2.3 move, where `prefill_step` grew a `max_rows` budget.
 
-Unknowns a build has to settle (no prebuilt to fall back on):
+Unknowns a build has to settle (no prebuilt to fall back on). Status as of 2026-11-17:
 
-1. Nothing proves upstream `main`/1.2.6 still compiles `aarch64-windows` + CUDA 13.4 `sm_121`; the
-   last proof on this box is v1.2.3. Expect the usual break classes (MSVC-ARM64 intrinsics guards,
-   clang `/O2` SEH epilogue TUs, host-compiler surprises) in files we never touched.
-2. CUDA contract receipts are keyed by nvcc version (`sm121 refreshed with 13.0.88`; later compilers
-   are `later_pending`), so `tf-cuda-test` won't assert our 13.4 images. That is a test-coverage
-   gap, not a build gate.
-3. Windows still has no image/video path (`turbojpeg`/`tfvideo`), and 1.2.6 adds
-   `POST /v1/images/generations` — irrelevant here, but it keeps the "picture reader" gap in place.
-4. `libbolt` is pinned to the recipe's `bolt-recipe/` submodule (`6b064a31`); re-check it against the
-   new lane/round loop before promising its numbers carry over.
+1. ~~Nothing proves upstream `main`/1.2.6 still compiles `aarch64-windows` + CUDA 13.4 `sm_121`~~
+   **Closed** — `win-arm64/v1.2.6` built clean on the first attempt via `build-bolt-126.bat`, and
+   upstream's own `test-codec-diagnostics-host` passes 12/12 on this box.
+2. **Still open.** CUDA contract receipts are keyed by nvcc version (`sm121 refreshed with 13.0.88`;
+   later compilers are `later_pending`), so `tf-cuda-test` won't assert our 13.4 images. That is a
+   test-coverage gap, not a build gate. Upstream's `4df5a81de` (13.2/13.3 merge_segs records) is the
+   template for adding 13.4.
+3. **Partly closed.** `turbojpeg.dll` and `libwebpdecoder.dll` are now built here and byte-exact
+   against Pillow (`build-jpeg.bat`, `build-webp.bat`); `tfvideo` and PDFium are still missing. What
+   actually blocks image serving is no longer the decoders but the checkpoints: the served Qwen's
+   vision tower is FP8 while `families/radio/weights.zig` accepts only bf16, and the Bolt checkpoint
+   ships no visual tensors at all — see `NEXT-STEPS.md`.
+4. ~~`libbolt` is pinned to the recipe's `bolt-recipe/` submodule (`6b064a31`); re-check it against the
+   new lane/round loop~~ **Closed** — `6b064a31` (2026-11-01) *is* the recipe's latest commit, so the
+   pin is current, and Bolt still loads and serves through `libbolt.dll` on 1.2.6.
 
 ## Reproduce this check
 

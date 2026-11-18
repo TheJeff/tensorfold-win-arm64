@@ -4,7 +4,7 @@ This repository builds a **native Windows ARM64 TensorFold server and a Zig/Win3
 
 The TensorFold fork in the `tensorfold/` submodule already includes the Bolt build integration. **Do not apply the recipe's registration patch or copy its Zig sources again.** This repository provides the recipe's CUDA sources separately through `bolt-recipe/`.
 
-> **Status:** Windows ARM64 / NVIDIA CUDA source-build project, not an installer. Text generation and structured output are supported by the pinned source. JPEG, WebP and video require additional native libraries and are not covered by this setup. The commands below are derived from the committed sources and batch files; a fresh checkout on another machine has not been end-to-end verified.
+> **Status:** Windows ARM64 / NVIDIA CUDA source-build project, not an installer. Text generation and structured output are supported by the pinned source. JPEG and WebP decoding are provided here as locally built native libraries (`build-jpeg.bat`, `build-webp.bat`); FFmpeg video and PDFium are still missing. Note that serving images additionally needs a checkpoint whose vision tower the CUDA loader can read — see [NEXT-STEPS.md](NEXT-STEPS.md), "Why images still do not work here". The commands below are derived from the committed sources and batch files; a fresh checkout on another machine has not been end-to-end verified.
 
 ## Requirements
 
@@ -39,6 +39,7 @@ git -c core.autocrlf=false submodule update --init --recursive
 | `bolt-recipe/` | Pinned Bolt recipe; `engine/` supplies the CUDA sources for `bolt.dll` |
 | `xgrammar/` | Pinned xgrammar source used to build `tfgrammar.dll` |
 | `gui/` | Native Zig/Win32 GUI; see [GUI README](gui/README.md) |
+| `tests/engine/` | Build gate: `verify-engine.ps1` plus the Pillow pixel-parity check. Run it against a candidate build before promoting it |
 | `local-patches/` | Historical grammar loader patch, **not needed** with the pinned TensorFold fork |
 | `models/` | Your downloaded checkpoints (ignored by Git; create this folder) |
 | `tools/` | Local Zig toolchain (ignored by Git) |
@@ -198,7 +199,7 @@ Method, per-run JSON and the full claim-by-claim assessment of 1.2.4-1.2.6: `BEN
 - **Missing `bolt.dll` or `tfgrammar.dll`:** check the `zig-out-v126/native/lib/` build output. Grammar is optional for ordinary text generation, but required for grammar-constrained requests.
 - **Out-of-memory / load failure:** check available CUDA device memory and lower context or parallelism. Model weight sizes alone do not describe peak loading/runtime requirements.
 - **GUI cannot find models:** create `models/` in the repository root and include each checkpoint's `config.json` and weight files.
-- **Images/video:** native Windows ARM64 JPEG, WebP and FFmpeg-based video dependencies are not provided. See [NEXT-STEPS.md](NEXT-STEPS.md) for what remains to be ported.
+- **Images/video:** JPEG and WebP are built locally by `build-jpeg.bat` and `build-webp.bat`, which install `turbojpeg.dll` and `libwebpdecoder.dll` next to the server. Serving an image additionally requires `--vision`, and for WebP `TENSORFOLD_LIBWEBP` must point at the decoder because `webp.zig` has no Windows library name. FFmpeg-based video and PDFium are still not provided. See [NEXT-STEPS.md](NEXT-STEPS.md) for what remains, including why a vision-capable checkpoint is also required.
 
 The benchmark figures and machine-specific binary hashes from the original development setup are **not reproducibility guarantees**. For performance comparisons, record the exact submodule SHAs, GPU/driver, memory budget, model revisions, build flags, context, concurrency and measurement method.
 

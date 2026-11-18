@@ -20,10 +20,13 @@ if not exist "%ROOT%\xgrammar\.git" (
 )
 
 cd /d "%ROOT%\tensorfold"
-"%ROOT%\tools\zig-aarch64-windows-0.17.0\zig.exe" build grammar -Dxgrammar="%ROOT%\xgrammar"
+rem --prefix is required: without it this installs into the old zig-out (v1.2.3) tree while
+rem build-bolt-126.bat and the GUI use zig-out-v126, so a rebuilt grammar DLL silently never
+rem reaches the server you actually run.
+"%ROOT%\tools\zig-aarch64-windows-0.17.0\zig.exe" build grammar -Dxgrammar="%ROOT%\xgrammar" --prefix zig-out-v126
 if errorlevel 1 (
   echo GRAMMAR BUILD FAILED
   exit /b 1
 )
 echo GRAMMAR BUILD OK
-dir "%ROOT%\tensorfold\zig-out\native\lib\*.dll"
+dir "%ROOT%\tensorfold\zig-out-v126\native\lib\*.dll"

@@ -1,6 +1,10 @@
 @echo off
 setlocal
-rem Build TensorFold 1.1.6 + the Bolt recipe's libbolt as bolt.dll for Windows ARM64 (sm_121).
+rem Build the pinned tensorfold/ submodule + the Bolt recipe's libbolt as bolt.dll for
+rem Windows ARM64 (sm_121), installing into the A/B tree at tensorfold/zig-out.
+rem Kept so the pre-1.2.6 baseline can be rebuilt for comparison; build-bolt-126.bat is the
+rem default engine (zig-out-v126). Whatever branch tensorfold/ is checked out on is what
+rem this builds -- check git rev-parse --abbrev-ref HEAD before trusting the result.
 rem Mirrors docs/windows.md in MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark (PR #7).
 
 call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" arm64
