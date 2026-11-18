@@ -262,10 +262,17 @@ if ($Tier -in 'Serve', 'All') {
     try { $modelId = (Invoke-RestMethod "$baseUrl/v1/models" -TimeoutSec 10).data[0].id } catch {}
     Pass 'model id resolved' $modelId
 
-    function Chat($content, $max = 48) {
-        $body = @{ model = $modelId; messages = @(@{ role = 'user'; content = $content }); max_tokens = $max; temperature = 0 } | ConvertTo-Json -Depth 8
-        Invoke-RestMethod "$baseUrl/v1/chat/completions" -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 300
+    function Chat($content, $max = 48, $Extra = @{}) {
+        $body = @{ model = $modelId; messages = @(@{ role = 'user'; content = $content }); max_tokens = $max; temperature = 0 }
+        foreach ($k in $Extra.Keys) { $body[$k] = $Extra[$k] }
+        Invoke-RestMethod "$baseUrl/v1/chat/completions" -Method Post -ContentType 'application/json' -Body ($body | ConvertTo-Json -Depth 8) -TimeoutSec 300
     }
+    # This checkpoint thinks by default, and max_tokens counts reasoning *and* the
+    # answer, so a small budget comes back with content empty and the text in
+    # reasoning_content -- the server logs exactly this: "a reply reached max_tokens
+    # while still thinking ... send chat_template_kwargs {"enable_thinking": false}".
+    # Image assertions want the answer, so they ask for it without the detour.
+    $NoThink = @{ chat_template_kwargs = @{ enable_thinking = $false } }
     function ImageContent($file, $mime, $prompt) {
         $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($file))
         @(@{ type = 'text'; text = $prompt },
@@ -295,10 +302,17 @@ if ($Tier -in 'Serve', 'All') {
             $path = Join-Path $fixtures $f.file
             if (-not (Test-Path $path)) { Fail "$($f.file) fixture exists"; $imagesWorked = $false; continue }
             try {
-                $r = Chat (ImageContent $path $f.mime $f.ask) 12
-                $txt = ($r.choices[0].message.content -replace '\s+', ' ').Trim()
+                $r = Chat (ImageContent $path $f.mime $f.ask) 64 $NoThink
+                $txt = ([string]$r.choices[0].message.content -replace '\s+', ' ').Trim()
                 if ($txt.Length -gt 0) { Pass "$($f.file) decoded and answered" $txt }
-                else { Fail "$($f.file) decoded and answered" 'empty reply'; $imagesWorked = $false }
+                else {
+                    # Content empty with thinking off is a genuine failure; if the text
+                    # landed in reasoning_content anyway, say so rather than reporting a
+                    # bare "empty reply" that looks like a decoder problem.
+                    $rc = ([string]$r.choices[0].message.reasoning_content).Trim()
+                    $hint = if ($rc) { "content empty but reasoning_content said: $rc" } else { 'empty reply' }
+                    Fail "$($f.file) decoded and answered" $hint; $imagesWorked = $false
+                }
             } catch { Fail "$($f.file) decoded and answered" $_.Exception.Message; $imagesWorked = $false }
         }
 
@@ -315,7 +329,7 @@ if ($Tier -in 'Serve', 'All') {
                 continue
             }
             try {
-                $r = Chat (ImageContent $path $neg.mime 'Describe this.') 8
+                $r = Chat (ImageContent $path $neg.mime 'Describe this.') 32 $NoThink
                 Fail "$($neg.file) refused ($($neg.why))" ('accepted, said: ' + [string]$r.choices[0].message.content)
             } catch {
                 Pass "$($neg.file) refused ($($neg.why))" ($_.Exception.Message -replace '\s+', ' ')
