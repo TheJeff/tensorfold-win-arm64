@@ -1,57 +1,105 @@
-# TensorFold on Windows ARM64 (NVIDIA RTX Spark N1X)
+# TensorFold on Windows ARM64 — a local LLM stack for RTX Spark (N1X) laptops
 
-This repository builds a **native Windows ARM64 TensorFold server and a Zig/Win32 model-control GUI**. It supports the model families implemented by the pinned [TensorFold fork](https://github.com/TheJeff/TensorFold), including Qwen-family checkpoints. The [Nemotron 3.5 Bolt recipe](https://github.com/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark) is an **optional additional backend**, not the purpose of the entire project. WSL and Docker are not required.
+**Native TensorFold plus a native control GUI, for Windows 11 ARM64 laptops with NVIDIA RTX Spark / N1X**
+(GB10-class Blackwell, `sm_121`, 96 GiB GPU framebuffer). Build once, then load models from a dashboard
+or a double-clickable `.bat` and talk to an OpenAI-compatible `/v1` API on localhost.
+**No WSL, no Docker, no Linux recipe to port.**
 
-The TensorFold fork in the `tensorfold/` submodule already includes the Bolt build integration. **Do not apply the recipe's registration patch or copy its Zig sources again.** This repository provides the recipe's CUDA sources separately through `bolt-recipe/`.
+This is the author's daily-driver inference stack on that hardware, and the reason this repo exists.
+NVIDIA's DGX Spark recipes — TensorFold's and llama.cpp's alike — assume Linux/Docker; on a Windows
+laptop that road goes through WSL2 with unified-memory budget bugs and 9p weight-loading traps.
+Here every piece (engine, Bolt backend, grammar DLL, JPEG/WebP decoders, GUI) is a native ARM64
+Windows binary, and the whole path is verified by a gate you can re-run. Day-to-day it simply works
+better on this laptop than the llama.cpp-under-NVIDIA's-recipes route: one stack, a real control
+surface, 262k contexts, tool calls and images included.
 
-> **Status:** Windows ARM64 / NVIDIA CUDA source-build project, not an installer. Text generation and structured output are supported by the pinned source. JPEG and WebP decoding are provided here as locally built native libraries (`build-jpeg.bat`, `build-webp.bat`); FFmpeg video and PDFium are still missing. Serving images additionally needs `--vision` and a checkpoint whose vision tower is bf16 — on this machine that is produced by `scripts/splice-vision-tower.py`, and images are measured working; see [NEXT-STEPS.md](NEXT-STEPS.md), "How to make images work here". The commands below are derived from the committed sources and batch files; a fresh checkout on another machine has not been end-to-end verified.
+> **Status:** source-build project, not an installer. Text generation, structured output/tool calls
+> and JPEG/WebP images are measured working on the reference machine; FFmpeg video and PDFium are not
+> built yet. A fresh checkout on another machine has not been end-to-end verified, and the numbers
+> below are one-machine receipts, not reproducibility guarantees.
 
-## Requirements
+## What you get
 
-- Windows 11 ARM64 and an NVIDIA CUDA GPU. The supplied build flags target **SM 121** (NVIDIA GB10 / RTX Spark N1X); change `-Dsm` for a different supported GPU.
+- **A control surface, not just a server.** The [GUI](gui/README.md) discovers checkpoints under
+  `models/`, loads and unloads them (including servers it did not start), and shows live decode/prefill
+  tok/s, MTP acceptance, KV occupancy, NVML framebuffer and host RAM, plus a chip naming the engine
+  version it is actually talking to. The launch command is data (`gui/serve.json`), not compiled-in
+  Zig, and each model carries its own profile. Four skins; headless `--shot`/`--plan` dev aids.
+- **Long context on one GPU.** Qwen3.8 Flash-Next FP4 serves a **262,144-token** window at 72.7 GiB
+  resident of the 96 GiB framebuffer, ~41 s to serving. Bolt 74B-A9B held **16 streams at 262k in
+  34.7 GB** of the framebuffer.
+- **Speculative decoding and prompt caching.** MTP drafts on both families; a 4 GiB prompt cache in
+  the default profiles.
+- **Structured output and tool calls.** `tfgrammar.dll` built from the pinned xgrammar; strict
+  `json_schema` and `tool_choice: "required"` verified on Bolt.
+- **Images that are tested, not assumed.** `turbojpeg.dll` 3.1.4.1 and `libwebpdecoder.dll` 1.6.0 are
+  built here and decode **pixel-exact against Pillow**; `scripts/splice-vision-tower.py` gives the FP4
+  Qwen checkpoint a bf16 vision tower (the export quantised it, and the CUDA loader accepts only
+  bf16); the gate then asserts the tower actually read the pixels — 5/5 ground-truth facts, 560 vs 26
+  prompt tokens, broken inputs refused with HTTP 400.
+- **Honest A/B benchmarks.** `bench/` drives unique nonce prompts (the prefix cache cannot fake a
+  result), alternates builds on a warm page cache and keeps per-run JSON. See `BENCH-1.2.6.md`.
+
+llama.cpp remains a good engine — its multi-slot serving is strong — so the claim here is about the
+whole Windows-laptop experience, not a universal throughput win; no comparative llama.cpp numbers are
+published in this repo.
+
+![TensorFold GUI](gui/docs/gui.png)
+
+## Quickstart
+
+### Requirements
+
+- Windows 11 ARM64 and an NVIDIA CUDA GPU. The supplied build flags target **SM 121** (NVIDIA GB10 /
+  RTX Spark N1X); change `-Dsm` for a different supported GPU. Only `sm_121` is validated here.
 - A compatible NVIDIA driver. The CUDA toolkit is needed to **build**; a driver is also needed to **run**.
-- Visual Studio 2022 Build Tools with **C++ build tools and ARM64 compiler/toolchain** (`vcvarsall.bat arm64`).
+- Visual Studio 2022 Build Tools with **C++ build tools and the ARM64 compiler/toolchain**
+  (`vcvarsall.bat arm64`). CMake and Ninja ship inside it — the decoder builds need nothing else.
 - CUDA Toolkit **13.4** with Windows ARM64 `nvcc.exe`; set `CUDA_PATH` to its installation directory.
-- [Zig **0.17.0**, aarch64-windows](https://ziglang.org/download/0.17.0/) (not Zig 0.13/0.14 or an x64 binary).
-- Git, with LF-preserving checkout for the recipe patches; model weights are downloaded separately.
+- [Zig **0.17.0**, aarch64-windows](https://ziglang.org/download/0.17.0/) (not 0.13/0.14, not an x64 binary).
+- Git. Model weights are downloaded separately, under `models/`.
+- For the build gate's Decode/Vision tiers only: a Python with **numpy and Pillow** (`-Python`
+  parameter; the gate invokes it with `-I` so ambient `PYTHONPATH` cannot hijack the import).
 
-The original environment used CUDA 13.4, Zig 0.17.0 and MSVC 2022. Other versions or GPU types are not validated here. Runtime memory requirements depend heavily on checkpoint, context and parallelism; the large examples below need substantial accessible CUDA memory.
+The reference environment is CUDA 13.4, Zig 0.17.0 and MSVC 2022. Other versions or GPU types are not
+validated. Runtime memory depends heavily on checkpoint, context and parallelism; the large examples
+need substantial accessible CUDA memory.
 
-## Checkout and directory layout
-
-In PowerShell, choose **any writable parent directory**:
+### Checkout and layout
 
 ```powershell
-git -c core.autocrlf=false clone --recurse-submodules https://github.com/TheJeff/tensorfold-win-arm64.git
+git clone --recurse-submodules https://github.com/TheJeff/tensorfold-win-arm64.git
 cd tensorfold-win-arm64
 git submodule status
 ```
 
-If already cloned without submodules:
-
-```powershell
-git -c core.autocrlf=false submodule update --init --recursive
-```
+Already cloned without submodules: `git submodule update --init --recursive`.
+`.gitattributes` keeps the recipe patches LF and the batch files CRLF regardless of your
+`core.autocrlf`, so the old `-c core.autocrlf=false` workaround is no longer load-bearing.
 
 | Path | Purpose |
 | --- | --- |
-| `tensorfold/` | Pinned [TheJeff/TensorFold](https://github.com/TheJeff/TensorFold) fork, on the v1.2.6-based Windows ARM64 port |
+| `tensorfold/` | Pinned [TheJeff/TensorFold](https://github.com/TheJeff/TensorFold) fork, on the v1.2.6-based Windows ARM64 port (`win-arm64/v1.2.6`) |
 | `bolt-recipe/` | Pinned Bolt recipe; `engine/` supplies the CUDA sources for `bolt.dll` |
 | `xgrammar/` | Pinned xgrammar source used to build `tfgrammar.dll` |
 | `gui/` | Native Zig/Win32 GUI; see [GUI README](gui/README.md) |
-| `tests/engine/` | Build gate: `verify-engine.ps1` plus the Pillow pixel-parity check. Run it against a candidate build before promoting it |
-| `local-patches/` | Historical grammar loader patch, **not needed** with the pinned TensorFold fork |
+| `tests/engine/` | Build gate: `verify-engine.ps1`, Pillow pixel-parity, ground-truth vision probe |
+| `scripts/` | `splice-vision-tower.py` — bf16 vision tower for the FP4 Qwen checkpoint |
+| `bench/` | A/B benchmark harness and per-run JSON |
+| `local-patches/` | Historical grammar loader patch, **not needed** with the pinned fork |
 | `models/` | Your downloaded checkpoints (ignored by Git; create this folder) |
 | `tools/` | Local Zig toolchain (ignored by Git) |
-| `tensorfold/zig-out-v126/`, `gui/zig-out/` | Build outputs (not committed). `tensorfold/zig-out/` holds the older 1.2.3 build if you keep one for A/B runs |
+| `tensorfold/zig-out-v126/`, `gui/zig-out/` | Build outputs (not committed). `tensorfold/zig-out/` holds an older 1.2.3 build if you keep one for A/B runs |
 
-The commit IDs in the submodules, rather than a moving branch tip, determine which sources you build. Keep the submodules at their recorded commits when reproducing this setup.
+The submodule commit IDs, not a moving branch tip, determine what you build. Keep them at their
+recorded commits when reproducing this setup.
 
-## Build TensorFold
+### Build the engine
 
-1. Extract the ARM64 Zig 0.17.0 archive into `tools/zig-aarch64-windows-0.17.0/`, so `tools/zig-aarch64-windows-0.17.0/zig.exe` exists.
+1. Extract the ARM64 Zig 0.17.0 archive into `tools/zig-aarch64-windows-0.17.0/` so
+   `tools/zig-aarch64-windows-0.17.0/zig.exe` exists.
 2. Install the ARM64 MSVC components and CUDA 13.4.
-3. Open **Command Prompt** at the repository root. Adapt the Visual Studio path and CUDA path to your installations:
+3. Open **Command Prompt** at the repository root (adapt the VS and CUDA paths to your installs):
 
 ```bat
 call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" arm64
@@ -66,49 +114,54 @@ cd /d "%ROOT%\tensorfold"
 "%ZIG%" build native install -Dsm=121 -Dstrip=true -Dnvcc="%CUDA_PATH%\bin\nvcc.exe" --prefix zig-out-v126
 ```
 
-Expected output: `tensorfold/zig-out-v126/native/bin/tensorfold-native.exe` (the build installs with
-`--prefix zig-out-v126`, so an older `zig-out` install is never overwritten).
+Expected output: `tensorfold/zig-out-v126/native/bin/tensorfold-native.exe`. The `--prefix` keeps an
+older `zig-out` install intact for A/B runs. `build-bolt-126.bat` wraps this but **hard-codes the
+original developer's paths** — edit it, or use the portable commands above.
 
-**Optional Bolt backend:** If you intend to run Nemotron 3.5 Bolt, build its additional CUDA DLL from the pinned recipe sources with:
+### Optional DLLs
 
 ```bat
+rem Bolt backend (only for Nemotron 3.5 Bolt; Qwen families do not use it):
 "%ZIG%" build native bolt install -Dsm=121 -Dstrip=true -Dnvcc="%CUDA_PATH%\bin\nvcc.exe" -Dbolt-src="%ROOT%\bolt-recipe\engine" --prefix zig-out-v126
+
+rem Structured output / tool calls:
+"%ZIG%" build grammar -Dxgrammar="%ROOT%\xgrammar" --prefix zig-out-v126
+
+rem JPEG and WebP input decoding (run from the repo root; they find VS's own CMake/Ninja):
+build-jpeg.bat
+build-webp.bat
 ```
 
-This additionally produces `tensorfold/zig-out-v126/native/lib/bolt.dll`. You do **not** need it to serve Qwen or other families with their own CUDA backend.
+- The fork already integrates the Bolt registration patch and recognises the Windows grammar DLL
+  name. **Do not re-apply `patches/0002` or `local-patches/0001-grammar-dll-windows.patch`.**
+- A `tfgrammar.dll` built for the previous tag still serves structured output on 1.2.6 (verified with
+  a strict `json_schema` on Bolt), so an existing DLL can simply be copied into the new `lib/`.
+- The decoder builds pin **libjpeg-turbo 3.1.4.1** and **libwebp 1.6.0** exactly — the engine refuses
+  other versions because its pixels are qualified against Pillow's. Both DLLs are self-contained
+  (static CRT, import only KERNEL32). WebP additionally needs `TENSORFOLD_LIBWEBP` pointing at
+  `libwebpdecoder.dll` (the engine has no Windows name for it); the GUI profile sets that for you.
+- `build-grammar.bat` also contains an absolute checkout path; edit it if you prefer that helper.
 
-The `build-bolt-126.bat` file invokes the optional Bolt build, **but currently hard-codes** the original developer's `C:\Projects\tensorfold-win-arm64`, Visual Studio and CUDA locations. Edit those paths before using it from another checkout, or use the portable commands above. The pinned fork has already integrated `patches/0002-register-bolt.patch`; applying it a second time is incorrect.
+### Serve
 
-### Optional: structured output and tool calls
-
-Build the grammar DLL from the `xgrammar/` submodule using the same configured Command Prompt:
+**From the GUI (the front door):**
 
 ```bat
-cd /d "%ROOT%\tensorfold"
-"%ZIG%" build grammar -Dxgrammar="%ROOT%\xgrammar"
+gui\build-gui.bat
+gui\zig-out\bin\tensorfold-gui.exe
 ```
 
-Confirm `tensorfold/zig-out-v126/native/lib/tfgrammar.dll` exists. The pinned fork already recognizes the Windows DLL name. **Do not apply `local-patches/0001-grammar-dll-windows.patch` to this version.** The `build-grammar.bat` helper also contains an absolute checkout path; edit it if you prefer that helper.
-A `tfgrammar.dll` built for the previous tag still serves structured output on 1.2.6 (verified with a
-strict `json_schema` on Bolt), so an existing DLL can simply be copied into the new `lib/`.
+It scans `models/`, writes per-model profiles to `gui/models.json`, and LOAD/UNLOAD buttons do the
+rest. `gui\build-gui.bat` locates Zig relative to itself and is not tied to any checkout path. The
+GUI is a **server control/monitoring interface**, not a chat UI. See [gui/README.md](gui/README.md)
+for CLI options (`--attach`, `--load`, `--plan`, `--shot`, skins), port behavior and limits.
 
-## Models and serving
-
-**This is not a Bolt-only model runner.** The native TensorFold executable can serve supported families beyond the two examples here. In particular, the pinned fork includes CUDA support for Qwen3.5/3.8 hybrid checkpoints and `qwen4_exp` (Qwen3.8 Flash-Next). Compatibility depends on a model's architecture and checkpoint format, not simply whether its name contains “Qwen.” Check the [fork's Windows documentation](https://github.com/TheJeff/TensorFold/blob/win-arm64/v1.2.6/docs/WINDOWS.md) and `tensorfold-native.exe info <checkpoint-directory>` when trying another checkpoint. Models not recognized by the pinned TensorFold source are not automatically supported by the GUI.
-
-The scripts expect unpacked model snapshots in `models/` with the **directory names shown below**. Model files are not included in this repository. Download the checkpoints from the model publishers, respecting their model licenses, and retain the original model metadata and shard files.
-
-- Bolt target: `models/Nemotron-3.5-Bolt-74B-A9B-24GB/` (model: `nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB`)
-- Optional Bolt drafter: `models/Nemotron-3.5-Bolt-LiLiCorr/` (matching LiLiCorr drafter checkpoint)
-- Qwen target: `models/Qwen3.8-Flash-Next-FP4-Local/` (model: `nvidia/Qwen3.8-Flash-Next-FP4-Local`)
-
-The provided `serve-bolt.bat` and `serve-qwen38.bat` **also hard-code the original `C:\Projects\tensorfold-win-arm64` root**. Either change `set "ROOT=..."` in each script or launch directly from Command Prompt as follows.
-
-### Nemotron 3.5 Bolt (optional)
-
-From the repository root:
+**From the launchers:** `serve-bolt.bat` (port 8082) and `serve-qwen38.bat` (port 8083) — both
+**hard-code the original `C:\Projects\tensorfold-win-arm64` root**; change `set "ROOT=..."` or serve
+directly:
 
 ```bat
+rem Nemotron 3.5 Bolt (optional backend):
 set "ROOT=%CD%"
 set "BOLT_DRAFT=%ROOT%\models\Nemotron-3.5-Bolt-LiLiCorr"
 set "BOLT_KV=bf16"
@@ -120,13 +173,11 @@ set "TENSORFOLD_NO_UPDATE_CHECK=1"
 "%ROOT%\tensorfold\zig-out-v126\native\bin\tensorfold-native.exe" serve "%ROOT%\models\Nemotron-3.5-Bolt-74B-A9B-24GB" --name Nemotron-3.5-Bolt --host 127.0.0.1 --port 8082 --parallel 4 --context 131072 --prompt-cache-gib 4
 ```
 
-If you do not have a matching drafter, remove `BOLT_DRAFT` from the environment and consult the pinned TensorFold/Bolt recipe for non-draft serving requirements. Do not point it at an unrelated checkpoint.
-
-### Qwen3.8 Flash-Next
-
-From a separate Command Prompt at the repository root:
+Without a matching drafter, remove `BOLT_DRAFT` and consult the recipe for non-draft serving; do not
+point it at an unrelated checkpoint.
 
 ```bat
+rem Qwen3.8 Flash-Next (native qwen4_exp CUDA support in the fork; no bolt.dll):
 set "ROOT=%CD%"
 set "TENSORFOLD_MEMORY_RESERVE_GIB=4"
 set "TF_FLASHNEXT_DRAFTS=6"
@@ -135,11 +186,11 @@ set "TENSORFOLD_NO_UPDATE_CHECK=1"
 "%ROOT%\tensorfold\zig-out-v126\native\bin\tensorfold-native.exe" serve "%ROOT%\models\Qwen3.8-Flash-Next-FP4-Local" --name Qwen3.8-Flash-Next --host 127.0.0.1 --port 8083 --parallel 2 --context 262144 --prompt-cache-gib 4 --dashboard --metrics-open
 ```
 
-Qwen3.8's `qwen4_exp` CUDA support is supplied by the pinned TensorFold fork; it does **not** use `bolt.dll`. This large checkpoint and the example 262k context require a suitably large device memory budget. Reduce `--parallel`/`--context` if necessary; the example is not a universal default. The Windows CUDA path has been documented as using bf16 KV for this model, not fp8 KV.
+The 262k example needs a suitably large device-memory budget; reduce `--parallel`/`--context`
+otherwise. This family keeps **bf16 KV** on the Windows CUDA path (fp8 is refused). For images, add
+`--vision` and serve the spliced checkpoint below.
 
 ### Smoke test
-
-With a server running, use PowerShell in another terminal:
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8082/v1/models
@@ -151,60 +202,132 @@ $body = @{
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8082/v1/chat/completions -ContentType "application/json" -Body $body
 ```
 
-Use port `8083` and model name `Qwen3.8-Flash-Next` for the Qwen launcher. A successful `/v1/models` response confirms HTTP availability; generation confirms the model has loaded and can run. Structured `response_format` and required tool calls additionally need `tfgrammar.dll`.
+Use port 8083 / `Qwen3.8-Flash-Next` for the Qwen launcher (the GUI's local profiles may use other
+ports — they live in `gui/models.json`). `/v1/models` proves HTTP availability; generation proves the
+model loaded. Structured `response_format` and required tool calls additionally need `tfgrammar.dll`.
 
-## Native control GUI
+## Models
+
+**This is not a Bolt-only model runner.** The pinned fork implements CUDA support for Qwen3.5/3.8
+hybrids and `qwen4_exp` (Qwen3.8 Flash-Next) among others; compatibility depends on architecture and
+checkpoint format, not on a name containing "Qwen". Check
+`tensorfold-native.exe info <checkpoint-dir>` and the
+[fork's Windows documentation](https://github.com/TheJeff/TensorFold/blob/win-arm64/v1.2.6/docs/WINDOWS.md)
+before trying another checkpoint. GUI discovery is not proof of engine support.
+
+Download snapshots into `models/` under these directory names (weights are not in this repo; respect
+the publishers' licenses and keep original metadata and shards):
+
+- `models/Nemotron-3.5-Bolt-74B-A9B-24GB/` — `nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB`
+- `models/Nemotron-3.5-Bolt-LiLiCorr/` — the matching Bolt drafter (optional)
+- `models/Qwen3.8-Flash-Next-FP4-Local/` — `nvidia/Qwen3.8-Flash-Next-FP4-Local`
+
+**Images:** the FP4 export quantised its vision tower, and `vision/qwen_cuda_weights.zig` accepts
+only bf16 — `--vision` on the stock checkpoint aborts the whole load. The splice grafts the bf16
+tower from `nvidia/Qwen3.8-Flash-Next-NVFP4-QAD` (whose own export left the tower alone) without
+touching the original: everything else is hardlinked, the rewritten shard's non-visual bytes are
+identical by construction, and a 15-check verifier ends in `SPLICE OK`.
 
 ```bat
-gui\build-gui.bat
-gui\zig-out\bin\tensorfold-gui.exe
+python scripts\splice-vision-tower.py
+rem -> models\Qwen3.8-Flash-Next-FP4-Local-vision, serve it with --vision
 ```
 
-The GUI build script locates Zig relative to its own directory and is not tied to `C:\Projects`. It scans checkpoint directories in `models/` and identifies models using their metadata; it is **not limited to Bolt or the supplied Qwen launch script**. It creates local `gui/models.json` profiles, launches the native server, and can attach to an existing server. The default launch profiles explicitly cover Bolt and `qwen4_exp`; verify and adjust settings for other architectures. See [gui/README.md](gui/README.md) for CLI options, screenshots, port behavior and limitations. It is a **server control/monitoring interface**, not a chat UI.
+Keep `--vision-image-tokens` at **4096 or below** on this family: the CUDA media layer's
+`checkLimits` aborts the load above it even though the CLI accepts more. Full story, measured
+results and the remaining routes (teach the loader quantised towers; report the packaging bug):
+[NEXT-STEPS.md](NEXT-STEPS.md), "How to make images work here".
 
-![TensorFold GUI](gui/docs/gui.png)
+## The build gate
 
-The GUI's header shows the engine version it is running: a `TF x.y.z` chip beside `CONTROL · N1X`,
-probed from `<exe> --version` while idle, replaced by the server's own `/health` value once one is
-serving or attached, and shown in amber as `TF 1.2.3 · built 1.2.6` when an older server is running
-than the build on disk.
+`tests/engine/verify-engine.ps1` checks a **candidate** build before you promote it over the engine
+you serve; it never touches a running server. Exit code is the number of FAILs. Four tiers,
+cheapest first:
 
-## Engine 1.2.6 (the default install)
+| Tier | Cost | What it proves |
+| --- | --- | --- |
+| `Probes` | ~2 s, no GPU | binary answers, `capabilities --json` parses, chip is `sm_121`, cuda present, optional libraries where expected, every serve flag the launchers use still exists |
+| `Decode` | ~5 s, no GPU | the built decoders reproduce Pillow's pixels **byte for byte** (ctypes, same call sequences the engine uses) |
+| `Vision` | ~20 s | ground-truth reading against an already-running server (`-Attach`): five facts that exist only in the pixels, image-vs-text token delta, both decoders fed raw bytes, broken input refused with 400 |
+| `Serve` | minutes, GPU | boots a model and proves images survive the tower into a reply, plus the negative cases; runs the Vision probe at the end |
 
-Upstream tagged **v1.2.6** on 2026-11-10, 1406 commits past the v1.2.3 base this guide used to
-pin. The fork re-ports it on branch `win-arm64/v1.2.6`; `build-bolt-126.bat` builds it to
-`tensorfold/zig-out-v126`, and `serve-bolt.bat`, `serve-qwen38.bat` and the GUI launch that install.
+```powershell
+.\tests\engine\verify-engine.ps1                 # Probes + Decode on the installed engine
+.\tests\engine\verify-engine.ps1 -Tier Serve     # full gate (defaults to the spliced vision tree)
+```
 
-Measured against 1.2.3 on Qwen3.8 Flash Next FP4 (median of 2-4 alternating runs, warm page cache,
-unique prompt per sample, 384-token replies): cold prefill **level** (2K +6%, 8K -1%, 32K +1%),
-single-stream decode **level**, 8 concurrent streams **+3.7%** aggregate (197.1 -> 204.3 tok/s), and
-replies bit-identical. Bolt loads in ~25 s and answers through `libbolt.dll` as before.
+**Run the Serve tier on AC power.** The gate holds the system awake while it runs: an idle-timeout
+Modern Standby entry mid-load bugchecks this box (0x19C, the NVIDIA display-power watchdog —
+observed 2026-11-18). It also reads `gui/models.json` and applies that model's env before probing,
+so it tests the environment the GUI actually creates. Upstream's own loader tests run here too:
+`zig build test-codec-diagnostics-host --summary all` from `tensorfold/zig` (12/12 on Windows ARM64).
 
-Two things to know before benchmarking this model yourself:
+## Engine 1.2.6 and the receipts
 
-- **Never A/B Flash Next on a cold page cache.** It walks its n-gram embedding tables through the
-  page cache, so the first runs after a build read 20-35% slower and fake a large prefill win.
-  Discard the first pair and alternate builds.
+Upstream tagged **v1.2.6** on 2026-11-10, 1406 commits past the v1.2.3 base this guide used to pin.
+The fork re-ports it on `win-arm64/v1.2.6`; `build-bolt-126.bat` builds it to `zig-out-v126`, and the
+launchers and GUI use that install. Measured against 1.2.3 on Flash Next FP4 (warm cache, medians of
+alternating runs, unique prompts): prefill **level** (2K +6%, 8K −1%, 32K +1%), single-stream decode
+**level**, 8 concurrent streams **+3.7%** aggregate (197.1 → 204.3 tok/s), replies bit-identical.
+Bolt loads in ~25 s and answers through `libbolt.dll` as before. Method and per-run JSON:
+`BENCH-1.2.6.md`, `bench/`, `UPSTREAM-1.2.6.md`.
+
+Reference-machine receipts (one N1X laptop; **not** guarantees):
+
+| Workload | Result |
+| --- | --- |
+| Qwen3.8 Flash-Next FP4, 262k window | 41 s load → 72.7 GiB resident; ~30 tok/s single-stream prose |
+| Bolt 74B-A9B + LiLiCorr (TF 1.1.6 receipt, 2026-11-01, commit `dab7cd6`) | 26 s load; 88.7 tok/s prose / 145.4 code solo; 240.9 aggregate @4 streams, 446.2 @16; 16×262k held 34.7 GB |
+| Images (2026-11-18 gate) | 0 failed, 0 warned: pixel parity 8/8, 5/5 ground-truth facts, 560 vs 26 prompt tokens, 6 refusals at HTTP 400 |
+
+Two things to know before benchmarking Flash Next yourself:
+
+- **Never A/B on a cold page cache.** It walks its n-gram embedding tables through the page cache;
+  first runs after a build read 20-35% slower and fake a large prefill win. Discard the first pair,
+  alternate builds, score medians.
 - Absolute tok/s depends on MTP acceptance (94-99% on predictable prompts, ~58% on a short answer),
   so trust A/B deltas over any single throughput figure.
 
-Method, per-run JSON and the full claim-by-claim assessment of 1.2.4-1.2.6: `BENCH-1.2.6.md`,
-`bench/`, and `UPSTREAM-1.2.6.md`.
-
 ## Troubleshooting and scope
 
-- **A checkpoint appears but will not serve:** GUI discovery is not proof of TensorFold CUDA support for that architecture or weight format; inspect the model with `tensorfold-native.exe info` and consult the pinned fork's supported families.
-- **`zig` or `nvcc` not found:** confirm the ARM64 Zig archive location, `CUDA_PATH`, and that the MSVC ARM64 environment was activated in the **same Command Prompt** used for building.
-- **Patch rejects / CRLF errors:** clone with `git -c core.autocrlf=false`; do not manually reapply the Bolt or grammar patches to the pinned fork.
-- **Missing `bolt.dll` or `tfgrammar.dll`:** check the `zig-out-v126/native/lib/` build output. Grammar is optional for ordinary text generation, but required for grammar-constrained requests.
-- **Out-of-memory / load failure:** check available CUDA device memory and lower context or parallelism. Model weight sizes alone do not describe peak loading/runtime requirements.
-- **GUI cannot find models:** create `models/` in the repository root and include each checkpoint's `config.json` and weight files.
-- **Images/video:** JPEG and WebP are built locally by `build-jpeg.bat` and `build-webp.bat`, which install `turbojpeg.dll` and `libwebpdecoder.dll` next to the server. Serving an image additionally requires `--vision`, and for WebP `TENSORFOLD_LIBWEBP` must point at the decoder because `webp.zig` has no Windows library name. A checkpoint whose vision tower is bf16 is required as well: the FP4 export quantised the tower, and `vision/qwen_cuda_weights.zig` accepts only bf16, so `--vision` on it aborts the whole load. `scripts/splice-vision-tower.py` builds a checkpoint that satisfies it, and `tests/engine/verify-engine.ps1 -Tier Serve` is the gate that proves images actually work. FFmpeg-based video and PDFium are still not provided. See [NEXT-STEPS.md](NEXT-STEPS.md) for what remains.
+- **A checkpoint appears but will not serve:** GUI discovery is not proof of CUDA support for that
+  architecture/format; inspect it with `tensorfold-native.exe info` and the fork's family list.
+- **`zig` or `nvcc` not found:** confirm the ARM64 Zig location, `CUDA_PATH`, and that the MSVC ARM64
+  environment was activated in the **same Command Prompt** used for building.
+- **Patch rejects / CRLF errors:** `.gitattributes` now handles this; do not manually reapply the
+  Bolt or grammar patches to the pinned fork.
+- **Missing `bolt.dll` / `tfgrammar.dll`:** check `zig-out-v126/native/lib/`. Grammar is optional for
+  plain text, required for grammar-constrained requests.
+- **Out-of-memory / load failure:** check free CUDA memory and lower context/parallelism; weight
+  size alone does not describe peak load/runtime requirements. `info`'s "memory floor" includes a
+  runtime margin and can exceed the framebuffer while the loader still packs the model — try the
+  load, and budget headroom with `TENSORFOLD_MEMORY_RESERVE_GIB` (2-4 GiB suits this box).
+- **`BadImageLimits` at load:** `--vision-image-tokens` above the family's 4096 cap; lower it.
+- **GUI cannot find models:** create `models/` with each checkpoint's `config.json` and weight files.
+- **Images/video:** JPEG/WebP work as described above (`--vision`, `TENSORFOLD_LIBWEBP`, bf16 tower).
+  FFmpeg video and PDFium are still not provided — see [NEXT-STEPS.md](NEXT-STEPS.md).
+- **`serve --help` omits the vision flags** while the CLI parses them; trust
+  `capabilities --json`'s `serve.flags`, not the help text.
 
-The benchmark figures and machine-specific binary hashes from the original development setup are **not reproducibility guarantees**. For performance comparisons, record the exact submodule SHAs, GPU/driver, memory budget, model revisions, build flags, context, concurrency and measurement method.
+For performance comparisons, record the exact submodule SHAs, GPU/driver, memory budget, model
+revisions, build flags, context, concurrency and measurement method.
+
+## What's still missing
+
+- **Video** (`tfvideo.dll`): FFmpeg 9.0.2 for winarm64 exists only as BtbN's *shared* zip; two routes
+  (import-lib link vs faithful static source build) are costed in NEXT-STEPS item 3.
+- **PDF** (`pdfium.dll`): upstream already wrote the Windows loader path for this one; the open
+  question is sourcing a `chromium/7725` ARM64 Windows build (NEXT-STEPS item 4).
+- **Quantised vision towers:** teaching `qwen_cuda_weights.zig` MXFP8/NVFP4 (the GLM family already
+  does) would make the splice unnecessary — engine work, upstream ATC workflow.
+- **EXL3** checkpoints have no Zig loader; that format lives in the Python CUDA engine only.
+- Upstream ships **no windows-arm64 prebuilt** (linux x86_64/aarch64 + macos only). This fork is the
+  reproduction of the `aarch64-windows`/`sm_121` receipt that upstream's `docs/WINDOWS.md` calls a
+  PR report "not reproduced on the maintained tree".
 
 ## Related projects
 
-- [TensorFold upstream](https://github.com/ashhart/TensorFold) and [Windows build documentation](https://github.com/TheJeff/TensorFold/blob/win-arm64/v1.2.6/docs/WINDOWS.md)
+- [TensorFold upstream](https://github.com/ashhart/TensorFold) and the
+  [Windows build documentation](https://github.com/TheJeff/TensorFold/blob/win-arm64/v1.2.6/docs/WINDOWS.md)
 - [Windows ARM64 TensorFold fork](https://github.com/TheJeff/TensorFold) (see its `FORK.md` for branch history)
 - [Nemotron 3.5 Bolt recipe](https://github.com/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark) (see `docs/windows.md`)
