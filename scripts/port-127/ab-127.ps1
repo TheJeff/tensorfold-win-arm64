@@ -1,4 +1,4 @@
-# P4: v1.2.6 vs v1.2.7(+mia 0001-0005) A/B, warm-cache method per BENCH-1.2.6.md.
+# P4: v1.2.6 vs v1.2.7(+mia 0001-0005) A/B, warm-cache method per docs/receipts/BENCH-1.2.6.md.
 # Alternate builds, discard the first pair, score the second. Then the 0004
 # isolation run (TF_FLASHNEXT_PROMPT_MX128=0), the bf16x3 admission refusal probe,
 # the fp8x3 bench+needle, and a bf16 single-stream needle baseline.

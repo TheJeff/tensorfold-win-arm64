@@ -129,7 +129,7 @@ and names the template file in force.
   or touching the GPU; it is how you prove an edit took effect.
 - FlashNext CUDA caps `--vision-image-tokens` at **4096** (`qwen_cuda_media.zig`
   `checkLimits`); the CLI accepts more, but an over-cap value aborts the entire load
-  with `BadImageLimits`. Images also need a bf16 vision tower — see NEXT-STEPS.md,
+  with `BadImageLimits`. Images also need a bf16 vision tower — see ../docs/NEXT-STEPS.md,
   "How to make images work here".
 
 ## Telemetry

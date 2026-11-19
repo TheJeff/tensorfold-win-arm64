@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Aggregate the 1.2.6 vs 1.2.7(+mia) A/B results per BENCH-1.2.6.md's method:
+"""Aggregate the 1.2.6 vs 1.2.7(+mia) A/B results per docs/receipts/BENCH-1.2.6.md's method:
 discard the first (warm-up) pair, score medians of the remaining alternating
-runs, compare reply hashes. Prints a markdown table for BENCH-1.2.7.md.
+runs, compare reply hashes. Prints a markdown table for docs/receipts/BENCH-1.2.7.md.
 
 Usage: python bench/summarize-127.py
 """

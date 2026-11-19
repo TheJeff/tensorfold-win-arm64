@@ -33,13 +33,13 @@ last week's.
 
 ## Method
 
-`bench/run-ab.sh` + `bench/bench-flashnext.py` (unique nonce prompts, TTFT → prefill tok/s,
+`../../bench/run-ab.sh` + `../../bench/bench-flashnext.py` (unique nonce prompts, TTFT → prefill tok/s,
 decode between first and last delta, reply hashes), as in BENCH-1.2.6.md, with additions:
 
-- `KV_CACHE` / `STREAMS` / `NEEDLE` env passthroughs; `bench/boot-probe.sh` for admission
-  probes (short deadline, reads the engine's own `serving` line); `bench/needle-200k.py`
+- `KV_CACHE` / `STREAMS` / `NEEDLE` env passthroughs; `../../bench/boot-probe.sh` for admission
+  probes (short deadline, reads the engine's own `serving` line); `../../bench/needle-200k.py`
   (deterministic seeded haystack, needle at 60% depth, greedy, thinking off).
-- Keep-awake wrappers (`bench/ab-127*.ps1`) hold `ES_SYSTEM_REQUIRED` for whole sequences.
+- Keep-awake wrappers (`../../scripts/port-127/ab-127*.ps1`) hold `ES_SYSTEM_REQUIRED` for whole sequences.
 - Run order: **a pair (discarded warm-up)** → b, c pairs (scored, 128-token replies) →
   mx0 isolation → bf16×3 admission probe → fp8×3 bench+needle → bf16×1 bench+needle →
   **d pair (384-token confirmation)** → Bolt lane check.
@@ -98,7 +98,7 @@ Engine admission lines (`--context 262144`, 4 GiB reserve, model 72.76 GiB):
 bf16 ×4 does not fit the budget (4 × 7.86 = 31.4 > 26.0); fp8 ×5 does (5 × 4.72 = 23.6).
 **Five concurrent full 262k windows on one 96 GiB GB10** — the Spark-recipe concurrency, here.
 
-Needle at depth (`bench/needle-200k.py`, seeded haystack, code at 60%):
+Needle at depth (`../../bench/needle-200k.py`, seeded haystack, code at 60%):
 
 | run | prompt tokens | found | wall | reply |
 | --- | ---: | --- | ---: | --- |
@@ -110,7 +110,7 @@ single sample (codes widened to bf16 per read); worth more samples before callin
 Resident after the needle: fp8 ×3 **80,263 MiB with three windows** vs bf16 ×1 83,217 MiB with
 one — fp8 holds 3× the concurrency in less memory.
 
-**Adoption:** opt-in (`--kv-cache fp8`, `KV_CACHE=fp8` in `serve-qwen38.bat`). Default stays
+**Adoption:** opt-in (`--kv-cache fp8`, `KV_CACHE=fp8` in `../../serve-qwen38.bat`). Default stays
 bf16. Mia's ~98.8% top-1 agreement is their harness; our hashes + needle pass, but sampled
 long-chat equivalence is not proven here.
 
@@ -129,7 +129,7 @@ long-chat equivalence is not proven here.
 
 ## Bolt lane + grammar on v127
 
-`bolt-check-127.ps1`: boot through the promoted `serve-bolt.bat`, chat reply, strict
+`../../scripts/port-127/bolt-check-127.ps1`: boot through the promoted `../../serve-bolt.bat`, chat reply, strict
 `json_schema` (`answer: 4`) through the copied `tfgrammar.dll`. The first attempt failed on the
 check's own handling (`/v1/models` answers before the load finishes; thinking ate the 64-token
 budget — the engine logged the remedy). Fixed check (true readiness from the engine's `serving`
@@ -146,14 +146,16 @@ environmental, not a port regression (both builds read 51–56 s today).
 
 ## Reproduce
 
+From the repo root:
+
 ```bat
-bench\ab-127.ps1          & rem round 1: a pair, probes, fp8x3 + bf16 needles (keep-awake)
-bench\ab-127-round2.ps1   & rem b/c pairs, mx0, fp8x5 admission probe
-bench\ab-127-round3.ps1   & rem 384-token d pair
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\port-127\ab-127.ps1          & rem round 1: a pair, probes, fp8x3 + bf16 needles (keep-awake)
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\port-127\ab-127-round2.ps1   & rem b/c pairs, mx0, fp8x5 admission probe
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\port-127\ab-127-round3.ps1   & rem 384-token d pair
 python bench\summarize-127.py
-bolt-check-127.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\port-127\bolt-check-127.ps1
 ```
 
-Per-run JSON: `bench/results/results-1.2.{6,7}{a,b,c,d}.json`, `results-1.2.7-mx0.json`,
+Per-run JSON: `../../bench/results/results-1.2.{6,7}{a,b,c,d}.json`, `results-1.2.7-mx0.json`,
 `results-1.2.7-fp8x3.json`, `results-1.2.7-bf16n.json`, `needle-1.2.7-{fp8x3,bf16n}.json`.
-Server logs: `logs/serve-*.log`, `logs/boot-*.log`, `logs/verify-*.log`, `logs/ab-127*.log`.
+Server logs: `../../logs/serve-*.log`, `../../logs/boot-*.log`, `../../logs/verify-*.log`, `../../logs/ab-127*.log`.

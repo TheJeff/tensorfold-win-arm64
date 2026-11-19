@@ -1,7 +1,7 @@
 # MiaAI-Lab's v1.2.7 recipe — what transfers to this Windows ARM64 port
 
 Review date: 2026-11-19. Subject: `MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold`
-at `b956dba8` (main, 2026-11-18), reviewed against this repo's `tensorfold/` submodule
+at `b956dba8` (main, 2026-11-18), reviewed against this repo's `../../tensorfold/` submodule
 (`win-arm64/v1.2.6`, `6c6615bd0`). Question asked: did Mia solve PDF and video, are the
 fixes Linux-only, and what benefits ours?
 
@@ -49,7 +49,7 @@ wheel sha256  eb8aeca157808f323e39ea298cc6d6c8e080c192ea2efb1ca81daa0f0ff4d095
 ```
 
 Extract `pypdfium2_raw/pdfium.dll` (and the `licenses/` tree beside it, as Mia's
-Dockerfile does). A copy of the wheel is kept in `downloads/` (gitignored).
+Dockerfile does). A copy of the wheel is kept in `../../downloads/` (gitignored).
 
 | fact | value |
 | --- | --- |
@@ -64,15 +64,15 @@ Dockerfile does). A copy of the wheel is kept in `downloads/` (gitignored).
    `PDFium found:true problem:null` (the DLL opens through `openRestricted`).
    `usable:null` is the same no-probe pattern as grammar — capabilities has no symbol
    test for PDFium, so the next two checks are the real gate.
-2. `tests/engine/pdfium-exports.py` (checked in with this review): the DLL exports
+2. `../../tests/engine/pdfium-exports.py` (checked in with this review): the DLL exports
    **all 13 required `FPDF_*` symbols** `pdf.zig` binds, plus all 3 optional
    progressive-render ones (`FPDF_RenderPageBitmap_Start/Continue/Close`); 470 exports total.
 3. The second dependency, libjpeg-turbo's **encoder** (`tj3Compress8` — PDF pages are
-   rendered to JPEG), is already satisfied: our `build-jpeg.bat` turbojpeg.dll exports
+   rendered to JPEG), is already satisfied: our `../../scripts/build/build-jpeg.bat` turbojpeg.dll exports
    all 5 `JpegFns` symbols including `tj3Compress8`.
 
 **Remaining work is wiring, not building:** put `pdfium.dll` in
-`tensorfold/zig-out-v126/native/lib/` (auto-discovered beside the server) or set
+`../../tensorfold/zig-out-v126/native/lib/` (auto-discovered beside the server) or set
 `TENSORFOLD_LIBPDFIUM` in the GUI profile's `env`; add `--vision-pdf` to the model's
 `extra_args` (needs `--vision`, already there); restart the GUI (it reads the catalog at
 startup); then a live PDF request. Caps are the engine's: 32 MiB/document, 16 pages
@@ -164,7 +164,7 @@ disk-restore fallback to RAM state. The re-port is small per BENCH-1.2.6.md's me
 2. **Cherry-pick `0001` + `0002` onto `win-arm64/v1.2.6`** — clean applies, host-testable
    (`qwen_cuda_weights_quant_test.zig` is new in 0001; run the codec-diagnostics and
    pixel-parity gates too). Retires the splice for future checkpoints and unlocks 16k
-   multi-image requests. Engine work in the submodule: follow `tensorfold/AGENTS.md` ATC
+   multi-image requests. Engine work in the submodule: follow `../../tensorfold/AGENTS.md` ATC
    (claim/`atc who`/PR pre-flight) if any of it goes upstream; our fork branch is our port.
 3. **Video** — FFmpeg winarm64 build (route (a) to decode, (b) for parity) + the one-hunk
    `0005` rebase + flags. First live video on this engine anywhere; test hard.
@@ -173,6 +173,8 @@ disk-restore fallback to RAM state. The re-port is small per BENCH-1.2.6.md's me
 5. **v1.2.7 re-port** when `0004`'s prefill tile and the upstream fixes are wanted.
 
 ## Reproducing the checks
+
+From the repo root:
 
 ```bash
 # wheel -> dll (copy kept in downloads/)
@@ -187,6 +189,6 @@ git -C <scratch>/tf-cascade apply --check <mia>/patches/000N-*.patch
 ```
 
 Mia's repo snapshot used: main tarball at `b956dba8`, patches `0001`–`0005`,
-`scripts/config.sh` pins (pypdfium2 5.14.0, FFmpeg 9.0.2 sha256
+their `scripts/config.sh` pins (pypdfium2 5.14.0, FFmpeg 9.0.2 sha256
 `8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e`, TF_REF
 `93a2e93ecebff8aa52b88e58c5dd222516e69c5f`).

@@ -6,7 +6,7 @@ Checked 2026-11-19 against `origin` = `ashhart/TensorFold`. Everything below is 
 | | |
 | --- | --- |
 | Target | tag `v1.2.7` → commit **`93a2e93ecebff8aa52b88e58c5dd222516e69c5f`** (annotated tag; the commit is exactly Mia's `TF_REF`) |
-| Our base | `tensorfold/` submodule `6c6615bd0`, branch `win-arm64/v1.2.6` = tag `v1.2.6` + 2 commits |
+| Our base | `../../tensorfold/` submodule `6c6615bd0`, branch `win-arm64/v1.2.6` = tag `v1.2.6` + 2 commits |
 | Fork delta | `git diff v1.2.6..HEAD` — **12 files, +905/−4** (Bolt lane + build step + registry + docs) |
 | Upstream churn | 188 commits, 292 files, +11,895/−1,245 between the tags |
 | Prebuilt for Windows? | **No.** v1.2.7 assets: linux-aarch64, linux-x86_64, macos-arm64 only. Source build as always. |
@@ -61,13 +61,13 @@ level is byte-identical between the tags**:
 | `zig/src/server/cli.zig` | no diff → the 15 serve flags `verify-engine.ps1` asserts are unchanged |
 | root `build.zig` + `zig/build/` | 16 files, +74/−12 (host-CI, qwen35 layers, hip…) — none conflict with the fork |
 
-Fork files also touched upstream: only `README.md` and `zig/src/server/main.zig` — both applied
+Fork files also touched upstream: only `../../README.md` and `zig/src/server/main.zig` — both applied
 cleanly (main.zig at offset +1).
 
 ## The Mia stack — all five apply on v1.2.7 + fork (measured)
 
 Applied in order in the same worktree after the fork delta: `0001 → 0002 → 0003 → 0004 → 0005`,
-**every one clean**, 56 files touched total. Copies kept in `local-patches/mia-v1.2.7/` with
+**every one clean**, 56 files touched total. Copies kept in `../../local-patches/mia-v1.2.7/` with
 `LICENSE.mia` (MIT, MiaAI-Lab; source repo @ `b956dba8`, patches written against `93a2e93e`).
 Provenance per patch: 0001/0002/0003/0004 MiaAI-Lab (0003 adapted from their GLM recipe's
 `0038-glm-kv-fp8`), 0005 = chai-md's TensorFold #90 rebased by Mia.
@@ -90,18 +90,18 @@ The A/B decides, not their table.
 **P0 — branch + re-port (~15 min, already proven in scratch).**
 ```bat
 cd C:\Projects\tensorfold-win-arm64\tensorfold
-git diff v1.2.6..win-arm64/v1.2.6 > ..\local-patches\fork-v126.patch
+git diff v1.2.6..win-arm64/v1.2.6 > ../local-patches/fork-v126.patch
 git switch -c win-arm64/v1.2.7 v1.2.7
-git apply --3way ..\local-patches\fork-v126.patch
+git apply --3way ../local-patches/fork-v126.patch
 git add -A && git commit -m "re-port the Windows ARM64 / Bolt fork from v1.2.6 onto upstream v1.2.7"
 ```
 Zero conflicts expected (measured). FORK.md gets its v1.2.7 row in P5, with the verified numbers.
 
 **P1 — Mia stack as five revertible commits + host gates (~30 min).**
-Apply each `local-patches/mia-v1.2.7/000N-*.patch` with `git apply`, one commit each, message
+Apply each `../../local-patches/mia-v1.2.7/000N-*.patch` with `git apply`, one commit each, message
 naming the patch, MiaAI-Lab @ `b956dba8`, MIT, and `TF_REF 93a2e93e`. Per-commit granularity means
 any single patch can be reverted without unwinding the port. Then, in a `vcvarsall.bat arm64`
-environment from `tensorfold/`:
+environment from `../../tensorfold/`:
 ```bat
 tools\zig-aarch64-windows-0.17.0\zig.exe build check-native-cuda-host
 tools\zig-aarch64-windows-0.17.0\zig.exe build test-qwen-vision-weights-host --summary all
@@ -110,17 +110,17 @@ tools\zig-aarch64-windows-0.17.0\zig.exe build test-codec-diagnostics-host --sum
 (12/12 codec diagnostics is the v1.2.6 baseline; the vision-weights step now includes 0001's quant
 tests; `check-native-cuda-host` is Mia's compile gate for 0005 — no GPU.)
 
-**P2 — build (~40 min cold, per the 1.2.6 receipt).** `build-bolt-127.bat` = copy of
-`build-bolt-126.bat` with `--prefix zig-out-v127` and the rem updated. Same line otherwise:
+**P2 — build (~40 min cold, per the 1.2.6 receipt).** `../../scripts/build/build-bolt-127.bat` = copy of
+`../../scripts/build/build-bolt-126.bat` with `--prefix zig-out-v127` and the rem updated. Same line otherwise:
 `zig build native bolt install -Dsm=121 -Dstrip=true -Dnvcc=... -Dbolt-src=...\bolt-recipe\engine`.
 **The v1.2.6 install keeps serving throughout** — nothing points at v127 until P5.
 
 **P3 — candidate gate (~30 min, Serve tier on AC).**
 - Copy the codec DLLs into `zig-out-v127/native/lib/`: `turbojpeg.dll`, `libwebpdecoder.dll`,
   `libsharpyuv.dll`, `tfgrammar.dll` from the v126 install, plus **`pdfium.dll`** from
-  `downloads/pypdfium2-5.14.0-py3-none-win_arm64.whl` (see MIA-V127-REVIEW.md — verified loadable).
-- `tests\engine\verify-engine.ps1 -Exe ...\zig-out-v127\native\bin\tensorfold-native.exe -Tier Probes`
-  then `-Tier Decode` (no GPU). The gate reads `gui/models.json` env, so the v126-pointing
+  `../../downloads/pypdfium2-5.14.0-py3-none-win_arm64.whl` (see MIA-V127-REVIEW.md — verified loadable).
+- `../../tests/engine/verify-engine.ps1 -Exe ...\zig-out-v127\native\bin\tensorfold-native.exe -Tier Probes`
+  then `-Tier Decode` (no GPU). The gate reads `../../gui/models.json` env, so the v126-pointing
   `TENSORFOLD_LIBWEBP` still resolves — the DLLs are engine-version-independent.
 - `-Tier Serve` on AC power (keep-awake is built into the gate): boots the vision model, JPEG/WebP
   positives + negatives. **Add the PDF fixture here** and `--vision-pdf` to the profile — the PDF
@@ -129,7 +129,7 @@ tests; `check-native-cuda-host` is Mia's compile gate for 0005 — no GPU.)
   answer — the splice-free path proven on this box.
 
 **P4 — A/B bench vs v1.2.6 (~1-2 h, method per BENCH-1.2.6.md).**
-`bench/run-ab.sh v127 <exe>` against the v126 baseline: **warm page cache** (discard the first
+`../../bench/run-ab.sh v127 <exe>` against the v126 baseline: **warm page cache** (discard the first
 pair, alternate builds, medians), nonce prompts, prefill 2/8/32K, 1- and 8-stream decode, reply
 hashes. Expected: prefill up, decode level, hashes identical. One run with
 `TF_FLASHNEXT_PROMPT_MX128=0` isolates 0004. Bolt: load + answer + a strict `json_schema` through
@@ -137,7 +137,7 @@ hashes. Expected: prefill up, decode level, hashes identical. One run with
 A/B** separately: `--kv-cache fp8` vs bf16, greedy hashes, a 200k needle, `/stats` resident bytes,
 and 3 concurrent full 262k windows admitted.
 
-**P5 — promote + receipts (~15 min).** Point `serve-qwen38.bat` / `serve-bolt.bat` and the GUI
+**P5 — promote + receipts (~15 min).** Point `../../serve-qwen38.bat` / `../../serve-bolt.bat` and the GUI
 profile's exe + `TENSORFOLD_LIBWEBP` at `zig-out-v127`; **restart the GUI** (catalog is read at
 startup). Write `BENCH-1.2.7.md`, update FORK.md (branch row + status), README receipt, bump the
 superproject's submodule pointer. Push `win-arm64/v1.2.7` to the `fork` remote (TheJeff) via the
@@ -194,24 +194,24 @@ git diff v1.2.6..v1.2.7 -- zig/src/core/lanes/backend.zig zig/build/cuda.zig \
 4. Video's FFmpeg build deferred to its own session (NEXT-STEPS Item 3).
 
 ATC note: this is fork-branch maintenance on our own `win-arm64/*` line — no upstream claim
-needed. Anything that later goes upstream as a PR follows `tensorfold/AGENTS.md` (claim, `atc who`,
+needed. Anything that later goes upstream as a PR follows `../../tensorfold/AGENTS.md` (claim, `atc who`,
 PR pre-flight). Mia patch commits carry their MIT provenance in the message and
-`local-patches/mia-v1.2.7/LICENSE.mia`.
+`../../local-patches/mia-v1.2.7/LICENSE.mia`.
 
 ## Execution status — P0–P2 DONE (2026-11-19)
 
 - **P0** — branch `win-arm64/v1.2.7` at the tag commit; re-port commit `1ff67e5ba`, zero conflicts
-  exactly as scoped. Fork delta kept at `local-patches/fork-v126.patch`.
+  exactly as scoped. Fork delta kept at `../../local-patches/fork-v126.patch`.
 - **P1** — five Mia commits: `65509a3fa` (0001), `9ec0bd16d` (0002), `55df98965` (0003),
-  `f0137a17e` (0004), `fcedfdeca` (0005). Host gates via `host-gates-127.bat`:
+  `f0137a17e` (0004), `fcedfdeca` (0005). Host gates via `../../scripts/build/host-gates-127.bat`:
   `test-codec-diagnostics-host` **12/12** (the v1.2.6 baseline), `test-qwen-vision-weights-host`
   **16/16** including 0001's five new quant tests, `check-native-cuda-host` **OK** (0005's compile
   gate). No compiler break classes hit — the `/O1` and `_MSC_VER` risks did not materialize.
-- **P2** — `build-bolt-127.bat`, **BUILD OK first attempt, 7.5 min** (11:05:47 → 11:13:17; warm
+- **P2** — `../../scripts/build/build-bolt-127.bat`, **BUILD OK first attempt, 7.5 min** (11:05:47 → 11:13:17; warm
   zig cache from the 1.2.6 build plus gate 3's host compile). `zig-out-v127/native/bin/
   tensorfold-native.exe` 49,894,400 bytes; `bolt.dll` 6,206,464 bytes (recipe sources unchanged,
-  cached artifact reused). Runner: `port-127-gates-build.ps1` (keep-awake, gates-then-build),
-  log `logs/port-127-gates-build.log`.
+  cached artifact reused). Runner: `../../scripts/port-127/port-127-gates-build.ps1` (keep-awake, gates-then-build),
+  log `../../logs/port-127-gates-build.log`.
 - **Candidate gate so far (no GPU):** codec DLLs + `tfgrammar.dll` copied from the v126 install,
   `pdfium.dll` from the win_arm64 wheel into `zig-out-v127/native/lib/`.
   `verify-engine.ps1 -Exe <v127> -Tier Probes`: **0 failed, 1 warned** (video — the known FFmpeg
@@ -224,9 +224,9 @@ PR pre-flight). Mia patch commits carry their MIT provenance in the message and
   booted with `--vision` (77.65 GiB, 55.9 s) and passed the same gate (1 informational warn: the
   stock GUI profile carries no `--vision` itself). Gate extended: `make-fixtures.py` writes
   `document.pdf`/`corrupt.pdf`; `verify-engine.ps1` adds `--vision-pdf` when pdfium.dll ships beside
-  the candidate and asserts the PDF positive+negative; `gui/models.json` vision profile carries
+  the candidate and asserts the PDF positive+negative; `../../gui/models.json` vision profile carries
   `--vision-pdf`.
-- **P4 DONE:** three keep-awake rounds (`bench/ab-127{,-round2,-round3}.ps1`). Scored b/c medians
+- **P4 DONE:** three keep-awake rounds (`../../scripts/port-127/ab-127{,-round2,-round3}.ps1`). Scored b/c medians
   (128-token replies): prefill **+4.8/+1.4/+2.4%** (2K/8K/32K), 1-stream decode level, 8-stream
   −10.4% — a noise-dominated cell (per-stream 24-148 tok/s) that **reversed at the historical
   384-token length: +6.4%** (152.5 → 162.3 agg, d pair). Reply hashes identical on every prompt
@@ -238,8 +238,8 @@ PR pre-flight). Mia patch commits carry their MIT provenance in the message and
   valid. Round 1 lost three runs to a stale LISTENING entry; `run-ab.sh` now waits the port out.
   Bolt lane + grammar: **PASS** on the fixed check (true readiness + thinking off; the first
   attempt failed on the check's own handling, not the engine). Receipt: `BENCH-1.2.7.md`.
-- **P5 DONE:** `serve-qwen38.bat` (v127 + `KV_CACHE` passthrough, bf16 default), `serve-bolt.bat`,
-  `gui/models.json` (exe + `TENSORFOLD_LIBWEBP` → v127, `--vision-pdf` on the vision profile),
+- **P5 DONE:** `../../serve-qwen38.bat` (v127 + `KV_CACHE` passthrough, bf16 default), `../../serve-bolt.bat`,
+  `../../gui/models.json` (exe + `TENSORFOLD_LIBWEBP` → v127, `--vision-pdf` on the vision profile),
   README/FORK.md promoted, `BENCH-1.2.7.md` written, submodule branch pushed to the fork remote,
   superproject pointer bumped. **v1.2.7 is the serving default; `zig-out-v126` +
   `win-arm64/v1.2.6` stay hot for rollback.**

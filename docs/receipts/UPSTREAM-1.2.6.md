@@ -4,16 +4,16 @@ Checked 2026-11-10 20:54 UTC against `origin/main` = `22fb6014b` (upstream `ashh
 
 | | |
 | --- | --- |
-| Our engine pin | `tensorfold/` submodule `467e654cd`, tag `v1.2.3-4` (branch `win-arm64/v1.2.3`) |
+| Our engine pin | `../../tensorfold/` submodule `467e654cd`, tag `v1.2.3-4` (branch `win-arm64/v1.2.3`) |
 | Upstream now | `v1.2.6` (released 2026-11-10 12:51Z) + 28 commits on `main`; **1406 commits ahead of our base** |
 | New tags since us | `v1.2.4` (11-07), `v1.2.5` (11-08), `v1.2.6` (11-10) |
-| Prebuilt for Windows? | **No.** Release assets are `linux-aarch64`, `linux-x86_64`, `macos-arm64` (+ a darwin-arm64-metal engine) only. `docs/WINDOWS.md`: "Windows is supported from source only", and it names `aarch64-windows` / `sm_121` as a *PR-reported* receipt "not reproduced on the maintained tree". |
+| Prebuilt for Windows? | **No.** Release assets are `linux-aarch64`, `linux-x86_64`, `macos-arm64` (+ a darwin-arm64-metal engine) only. `../../tensorfold/docs/WINDOWS.md`: "Windows is supported from source only", and it names `aarch64-windows` / `sm_121` as a *PR-reported* receipt "not reproduced on the maintained tree". |
 
 So every speed number below is measured upstream on a **DGX Spark GB10** — the same GB10 silicon at
 `sm_121` that we run — but on Linux, and never with our Windows-ARM64 build.
 
 > **Outcome (2026-11-11):** ported and measured. The tree built clean on the first attempt
-> (`win-arm64/v1.2.6`, `build-bolt-126.bat`), Bolt still serves through `libbolt.dll`, and the A/B
+> (`win-arm64/v1.2.6`, `../../scripts/build/build-bolt-126.bat`), Bolt still serves through `libbolt.dll`, and the A/B
 > came out as this assessment predicted: prefill and single-stream decode level, **8 concurrent
 > streams +3.7%**, replies identical. Receipt: `BENCH-1.2.6.md`.
 
@@ -34,9 +34,9 @@ measures the whole release, not one PR. That is the number to trust for "what wo
 | --- | --- | --- |
 | Many agents: follow-up median first token 105 s → 25.8 s at 16 agents, decode 33.6 → 100.8 tok/s (GB10) | 1.2.6 #2699 | **Not on our models.** Measured on Qwen3.8-27B + DFlash2. The same release read says Flash Next on a GB10 is *level* at 8-16 agents. Would apply if we served Qwen3.8-27B dense. |
 | Qwen3.6-35B-A3B NVFP4 MoE: cold prompts 9.9-14.1% faster, 2K-64K (GB10) | 1.2.6 #2537 | Not now — we serve no `qwen3_5_moe` NVFP4 checkpoint. The 257-row crossover is tuned for GB10, so it would land if we add one. |
-| GLM-5.3-Flash TP=2: prompts 13-23% faster, code decode 32% faster (two GB10s) | 1.2.6 #2257 | No — GLM isn't in `models/`, and it needs two GPUs. |
+| GLM-5.3-Flash TP=2: prompts 13-23% faster, code decode 32% faster (two GB10s) | 1.2.6 #2257 | No — GLM isn't in `../../models/`, and it needs two GPUs. |
 | DSpine-b16 drafter for Qwen3.8-27B: agent-shaped decode 2.4-19.8% faster, chat/code 10-19% slower (GB10) | 1.2.6 #2633 | No — needs that checkpoint + drafter folder. |
-| **Flash Next on CUDA, `--parallel 1`: prompts 15-23% faster, +3.2 GiB** | 1.2.4 #2246 | **Yes**, but only at one lane. Our `qwen4_exp` profile runs 2 lanes (`gui/models.json`), so we'd get a partial share, or take the win and lose a lane. |
+| **Flash Next on CUDA, `--parallel 1`: prompts 15-23% faster, +3.2 GiB** | 1.2.4 #2246 | **Yes**, but only at one lane. Our `qwen4_exp` profile runs 2 lanes (`../../gui/models.json`), so we'd get a partial share, or take the win and lose a lane. |
 | **Flash Next on CUDA: 8 streams decode 3-6% faster** (one launch for a shared round's DeltaNet) | 1.2.4 #1942 | **Yes** — matches how we serve Flash Next. |
 | **Flash Next on CUDA: a new short prompt's first token 19% sooner** (prompt-cache mark kept inside the pass) | 1.2.4 #1866 | **Yes** — best single agent-facing win for our box. `TF_FLASHNEXT_KEEP_INPASS=0` reverts it. |
 | Flash Next NP4: BF16 prompt projections 128×128 tile on **`sm_12x`**: 3.7-4.4% less cold-prompt time + 0.6-0.8% | 1.2.5 #1846/#1848 | **Yes** — our checkpoint is the FP4 one these were measured on. Note the 1.2.5 *release read* on the MLX 4-bit Flash Next was level, so the tile is checkpoint-dependent (`TF_FLASHNEXT_PROMPT_BF16=0` off). |
@@ -86,17 +86,17 @@ time — unlike the v1.1.6 → 1.2.3 move, where `prefill_step` grew a `max_rows
 Unknowns a build has to settle (no prebuilt to fall back on). Status as of 2026-11-17:
 
 1. ~~Nothing proves upstream `main`/1.2.6 still compiles `aarch64-windows` + CUDA 13.4 `sm_121`~~
-   **Closed** — `win-arm64/v1.2.6` built clean on the first attempt via `build-bolt-126.bat`, and
+   **Closed** — `win-arm64/v1.2.6` built clean on the first attempt via `../../scripts/build/build-bolt-126.bat`, and
    upstream's own `test-codec-diagnostics-host` passes 12/12 on this box.
 2. **Still open.** CUDA contract receipts are keyed by nvcc version (`sm121 refreshed with 13.0.88`;
    later compilers are `later_pending`), so `tf-cuda-test` won't assert our 13.4 images. That is a
    test-coverage gap, not a build gate. Upstream's `4df5a81de` (13.2/13.3 merge_segs records) is the
    template for adding 13.4.
 3. **Partly closed.** `turbojpeg.dll` and `libwebpdecoder.dll` are now built here and byte-exact
-   against Pillow (`build-jpeg.bat`, `build-webp.bat`); `tfvideo` and PDFium are still missing. What
+   against Pillow (`../../scripts/build/build-jpeg.bat`, `../../scripts/build/build-webp.bat`); `tfvideo` and PDFium are still missing. What
    actually blocks image serving is no longer the decoders but the checkpoints: the served Qwen's
    vision tower is quantised while `vision/qwen_cuda_weights.zig` accepts only bf16, and the Bolt checkpoint
-   ships no visual tensors at all — see `NEXT-STEPS.md`.
+   ships no visual tensors at all — see `../NEXT-STEPS.md`.
 4. ~~`libbolt` is pinned to the recipe's `bolt-recipe/` submodule (`6b064a31`); re-check it against the
    new lane/round loop~~ **Closed** — `6b064a31` (2026-11-01) *is* the recipe's latest commit, so the
    pin is current, and Bolt still loads and serves through `libbolt.dll` on 1.2.6.
@@ -117,5 +117,5 @@ git diff v1.2.3..HEAD > fork.patch && git apply --check --verbose fork.patch   #
 Branch `win-arm64/v1.2.6` off the tag, re-apply the three failing hunks (bolt step in
 `zig/build/cuda.zig`, the title/`modelType` patch in `cli/hub.zig`, `nemotron.bolt` in
 `native/cuda_families.zig`), `zig build native bolt install -Dsm=121 -Dstrip=true`, then bench
-`Flash Next FP4` cold on 2/8/32K plus 8-stream decode against the 1.2.3 numbers in `README.md`. Only
+`Flash Next FP4` cold on 2/8/32K plus 8-stream decode against the 1.2.3 numbers in `../../README.md`. Only
 the Flash Next panel is expected to move; a flat Bolt panel is the correct result, not a failed port.

@@ -3,7 +3,7 @@ setlocal
 rem Build TensorFold v1.2.7 + mia 0001-0005 + the Bolt recipe's libbolt as bolt.dll for
 rem Windows ARM64 (sm_121). Same toolchain as build-bolt-126.bat, but installs to
 rem zig-out-v127 so the working 1.2.6 install in zig-out-v126 stays intact for A/B.
-rem Branch: win-arm64/v1.2.7 (re-port + five Mia patch commits). Plan: UPSTREAM-1.2.7.md.
+rem Branch: win-arm64/v1.2.7 (re-port + five Mia patch commits). Plan: docs/receipts/UPSTREAM-1.2.7.md.
 
 call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" arm64
 if errorlevel 1 (

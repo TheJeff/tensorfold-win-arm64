@@ -6,7 +6,7 @@ This is a development reference for adding JPEG, WebP, video and PDF decoding to
 
 | piece | pin | where it is recorded |
 | --- | --- | --- |
-| TensorFold | Repository's `tensorfold/` submodule (v1.2.6-based Windows branch, `win-arm64/v1.2.6`) | `.gitmodules` and the superproject's submodule gitlink; **not** the older recipe's `TF_REF` |
+| TensorFold | Repository's `../tensorfold/` submodule (v1.2.6-based Windows branch, `win-arm64/v1.2.6`) | `.gitmodules` and the superproject's submodule gitlink; **not** the older recipe's `TF_REF` |
 | Bolt recipe | Repository's pinned `bolt-recipe/` submodule | gitlink for `bolt-recipe/` |
 | xgrammar | Repository's pinned `xgrammar/` submodule (v0.2.8 lineage) | gitlink for `xgrammar/` |
 | libjpeg-turbo | **3.1.4.1** | `zig/src/core/picture/jpeg.zig` `pinned` |
@@ -21,7 +21,7 @@ Everything we hit was an unported path in an otherwise working tree, so the odds
 somebody fixed one of these in the meantime. Run these first; if a fix landed, drop our local patch
 instead of carrying it.
 
-**TensorFold** (compare the pinned `tensorfold/` checkout with upstream):
+**TensorFold** (compare the pinned `../tensorfold/` checkout with upstream):
 
 ```bash
 git ls-remote https://github.com/ashhart/TensorFold.git HEAD          # is main past eea9dc9c?
@@ -33,10 +33,10 @@ git diff HEAD FETCH_HEAD -- docs/WINDOWS.md \
 
 What to look for, and what it would mean:
 
-- **Grammar is already Windows-aware in the pinned v1.2.3-based fork**: both the optional library registry and lane loader name `tfgrammar.dll`. The historical `local-patches/0001-grammar-dll-windows.patch` should **not** be applied. Check for regressions when updating the submodule.
+- **Grammar is already Windows-aware in the pinned v1.2.3-based fork**: both the optional library registry and lane loader name `tfgrammar.dll`. The historical `../local-patches/0001-grammar-dll-windows.patch` should **not** be applied. Check for regressions when updating the submodule.
 - a `win` branch on the **webp** entry and in `picture/webp.zig`'s `library` → skip the name patch
   in item 2.
-- `docs/WINDOWS.md` mentioning jpeg, video or webp at all, or a `zig build video`/`jpeg` step with
+- `../tensorfold/docs/WINDOWS.md` mentioning jpeg, video or webp at all, or a `zig build video`/`jpeg` step with
   a Windows branch → read it before porting anything yourself; upstream may have chosen the same
   route (shared vs static FFmpeg) and its choice beats ours.
 - release notes / a Windows-arm64 asset in a release → prefer the binary over a source build.
@@ -48,7 +48,7 @@ curl -s "https://api.github.com/repos/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX
   python -c "import json,sys; [print(c['sha'][:8], c['commit']['message'].splitlines()[0]) for c in json.load(sys.stdin)]"
 ```
 
-Watch `docs/windows.md` and `engine/`: if the recipe starts building `libtfvideo`/`libturbojpeg`
+Watch `../bolt-recipe/docs/windows.md` and `engine/`: if the recipe starts building `libtfvideo`/`libturbojpeg`
 for Windows, copy its flags rather than inventing ours.
 
 **Dependencies:**
@@ -70,9 +70,9 @@ and `TENSORFOLD_LIBTURBOJPEG` overrides the path), but **no ARM64 Windows binary
 `libjpeg-turbo-3.2.1-vc-arm64.exe`, and 3.2.1 is the current Active/Stable release. The pin refuses it.
 So this is still the one component that has to be compiled here.
 
-**DONE — 2026-11-17**, by `build-jpeg.bat` at the repo root. `turbojpeg.dll` (783,360 bytes,
+**DONE — 2026-11-17**, by `../scripts/build/build-jpeg.bat`. `turbojpeg.dll` (783,360 bytes,
 sha256 `e2496bb6b8dca3b34175f4a7ec418ed2f7772bc7fc42d8e7176428d6450431af`) is installed in
-`tensorfold/zig-out-v126/native/lib`. What the build actually needed, versus what was assumed:
+`../tensorfold/zig-out-v126/native/lib`. What the build actually needed, versus what was assumed:
 
 - **No extra tools.** CMake and Ninja both ship inside VS 2022 Build Tools
   (`Common7\IDE\CommonExtensions\Microsoft\CMake\{CMake\bin,Ninja}`) — there is no need to install
@@ -141,8 +141,8 @@ pixels.
 `picture/webp.zig` `library` (`libwebpdecoder.3.dylib` / `libwebpdecoder.so.3`). Pinned 1.6.0, and
 the decoder version must pack to `0x010600`.
 
-**DONE — 2026-11-17**, by `build-webp.bat` at the repo root. Two DLLs go in
-`tensorfold/zig-out-v126/native/lib` — the decoder needs both:
+**DONE — 2026-11-17**, by `../scripts/build/build-webp.bat`. Two DLLs go in
+`../tensorfold/zig-out-v126/native/lib` — the decoder needs both:
 
 | File | Bytes | sha256 |
 | --- | --- | --- |
@@ -169,7 +169,7 @@ libwebp  found=False  usable=False  problem=libwebpdecoder.so.3 is required for 
 Set `TENSORFOLD_LIBWEBP` and it becomes `found=True usable=True problem=null`. The engine's own
 message prescribes exactly that variable, so this is the supported route and **the fork carries no
 patch for it** — which is worth keeping, since `webp.zig` is upstream code. Put it in
-`gui/models.json` under that model's `env`:
+`../gui/models.json` under that model's `env`:
 
 ```json
 "TENSORFOLD_LIBWEBP": "C:/Projects/tensorfold-win-arm64/tensorfold/zig-out-v126/native/lib/libwebpdecoder.dll"
@@ -183,13 +183,13 @@ If the env var is ever undesirable, the patch is two lines — a `win` branch in
 and the matching name in `optional_libraries.zig` — but it is permanent fork delta in a file upstream
 owns, so prefer the env var.
 
-**Verified at the level that matters.** `tests/engine/pixel-parity.py` loads the built DLL through
+**Verified at the level that matters.** `../tests/engine/pixel-parity.py` loads the built DLL through
 ctypes, calls the three entry points `webp.zig` binds (`WebPGetDecoderVersion`, `WebPGetInfo`,
 `WebPDecodeRGBAInto`) and compares every byte to Pillow's decode of the same file:
 `WebPGetDecoderVersion() == 0x010600`, and lossy *and* lossless fixtures both come back at
 **max channel diff 0**.
 
-**Verify:** WebP data URL, same test as JPEG — or just run `tests/engine/verify-engine.ps1`.
+**Verify:** WebP data URL, same test as JPEG — or just run `../tests/engine/verify-engine.ps1`.
 
 ## Item 3 — Video (tfvideo.dll)
 
@@ -232,7 +232,7 @@ video at `qwen_cuda_media.zig:67` (`QwenVideoUnsupported`). The video-capable
 not use. `0005` on our v1.2.6: applies after `0002` except **one context-only hunk**
 (`cuda_images.zig:71`, v1.2.7's `.prep8` field). No Windows FFmpeg route in their commit — the
 two routes above stand. Mia has not served a live video even on their Spark (compile-only).
-Full review: `MIA-V127-REVIEW.md`.
+Full review: `receipts/MIA-V127-REVIEW.md`.
 
 **Verify:** a short mp4 data URL through `/v1/chat/completions`; the reply's `tf_video_version`
 should read FFmpeg 9.0.2, and the frame description should match the clip.
@@ -261,10 +261,10 @@ Two things make it worth more than a fourth entry on the list:
 PDFium out of the pinned **pypdfium2 5.14.0 wheel**, and pypdfium2 publishes a **win_arm64**
 wheel: `pypdfium2_raw/pdfium.dll`, ARM64 (PE `0xAA64`), 6,807,552 bytes, sha256
 `45e414bce25cd698d25ac7e90e91b967c9d0b5b28ca5fad6cf69c5a8ce699f40`, pdfium-binaries 156.0.8076.
-The wheel is kept in `downloads/pypdfium2-5.14.0-py3-none-win_arm64.whl`. The `chromium/7725`
+The wheel is kept in `../downloads/pypdfium2-5.14.0-py3-none-win_arm64.whl`. The `chromium/7725`
 pin is advisory only — `pdf.loadDynLib` gates on symbols, not version. Verified on this box:
 `capabilities --json` reports `PDFium found:true` through `TENSORFOLD_LIBPDFIUM`, and
-`tests/engine/pdfium-exports.py` confirms all 13 required `FPDF_*` exports (plus the 3 optional
+`../tests/engine/pdfium-exports.py` confirms all 13 required `FPDF_*` exports (plus the 3 optional
 progressive-render ones) and turbojpeg's `tj3Compress8` encoder. **Windows renders PDFs
 in-process** (`pdf.zig:218`) — the POSIX worker Mia's Linux recipe uses is compiled out here,
 so nothing Linux-only remains. **DONE 2026-11-19 on the v1.2.7 port** (`zig-out-v127`, mia
@@ -272,7 +272,7 @@ so nothing Linux-only remains. **DONE 2026-11-19 on the v1.2.7 port** (`zig-out-
 gate — extended with `document.pdf`/`corrupt.pdf` fixtures — read the printed word back
 (`PDFIUM-OK`) and refused the truncated PDF with 400; **0 failed, 0 warned**. The stock unspliced
 checkpoint also loads with `--vision` here (0001: 77.65 GiB, 55.9 s). The v1.2.6 install stays
-text+images only. Receipts: `MIA-V127-REVIEW.md`, `UPSTREAM-1.2.7.md`.
+text+images only. Receipts: `receipts/MIA-V127-REVIEW.md`, `receipts/UPSTREAM-1.2.7.md`.
 
 **Verify:** a PDF through the document path with `--vision --vision-pdf`; the request should be
 accepted rather than answered with `PdfiumLibraryUnavailable`.
@@ -282,11 +282,11 @@ accepted rather than answered with `PdfiumLibraryUnavailable`.
 Measured 2026-11-17: images work end to end on this box, and the path is scripted. Three things are
 required, and the decoders were never the whole story:
 
-1. **The decoders** — `turbojpeg.dll` 3.1.4.1 and `libwebpdecoder.dll` 1.6.0 from `build-jpeg.bat` /
-   `build-webp.bat`, pixel-exact against Pillow. `libwebpdecoder` needs `TENSORFOLD_LIBWEBP` because
+1. **The decoders** — `turbojpeg.dll` 3.1.4.1 and `libwebpdecoder.dll` 1.6.0 from `../scripts/build/build-jpeg.bat` /
+   `../scripts/build/build-webp.bat`, pixel-exact against Pillow. `libwebpdecoder` needs `TENSORFOLD_LIBWEBP` because
    `core/picture/webp.zig:20` has no Windows branch.
-2. **`--vision` on the serve command** — from the model's `extra_args` in `gui/models.json`, spliced
-   onto the template in `gui/serve.json`. Both are read when the GUI **starts**.
+2. **`--vision` on the serve command** — from the model's `extra_args` in `../gui/models.json`, spliced
+   onto the template in `../gui/serve.json`. Both are read when the GUI **starts**.
    Keep `--vision-image-tokens` at **4096 or below**: FlashNext CUDA's `checkLimits`
    (`vision/qwen_cuda_media.zig`) aborts the whole load above it (`BadImageLimits`) even though the
    CLI accepts up to 262144 — a profile set to 16384 killed every LOAD until it was corrected.
@@ -312,7 +312,7 @@ loader demands exactly **333** tensors (`3 + 27×12 + 6`) and at `:80` fails wit
 `error.UnusedVisionTensors` if any visual tensor is left unread — which is why the scale twins have to
 be *deleted*, not merely ignored.
 
-### The splice — `scripts/splice-vision-tower.py`
+### The splice — `../scripts/splice-vision-tower.py`
 
 Takes the 333 bf16 visual tensors out of the QAD checkpoint's shard 21 and appends them to a copy of
 FP4-Local's shard 15. Non-destructive: the original is verified to still hold its 499 quantised
@@ -333,7 +333,7 @@ Only its 0.84 GiB shard 21 is ever read — the 120.8 GiB model is never loaded.
 whole reason this route beats "just serve QAD" on a 96 GB box.
 
 ```
-python scripts/splice-vision-tower.py
+python scripts\splice-vision-tower.py
 tests\engine\verify-engine.ps1 -Tier Serve -Attach http://127.0.0.1:8889 `
     -Model models\Qwen3.8-Flash-Next-FP4-Local-vision
 ```
@@ -357,10 +357,10 @@ tower is really reading pixels rather than pattern-matching the prompt:
   tower. Engine work, so: ATC issue, claim, `atc who` overlap check, PR pre-flight.
 - **Route C — report the packaging bug.** An exporter that quantises a tower while `vision_config`
   still advertises `bfloat16` will strand every user who trusts that field.
-- **Reclaim 3.6 GiB.** `downloads/qad-vision/` is fully embedded in the spliced checkpoint; delete it
+- **Reclaim 3.6 GiB.** `../downloads/qad-vision/` is fully embedded in the spliced checkpoint; delete it
   once you trust the output, and re-fetch shard 21 alone if you ever need to rebuild.
 
-**Operational gotcha, found the hard way:** `gui/models.json` **and** `gui/serve.json` are read when
+**Operational gotcha, found the hard way:** `../gui/models.json` **and** `../gui/serve.json` are read when
 the GUI **starts**. Editing them and then restarting only the *server* leaves the GUI holding a stale
 in-memory catalog — observed directly: a running `tensorfold-native` whose command line had no
 `--vision` even though `models.json` specified it. Restart the GUI (or use the Reload action, which
@@ -371,7 +371,7 @@ Note also that `tensorfold-native serve --help` **omits** `--vision`, `--vision-
 `--vision-max-images` and `--vision-image-tokens` from its usage text while `server/cli.zig:479`
 parses all of them. Trust `capabilities --json`'s `serve.flags`, not the help text.
 
-## The build gate — `tests/engine/verify-engine.ps1`
+## The build gate — `../tests/engine/verify-engine.ps1`
 
 Run this against a **candidate** tree before promoting it over the engine you serve. It never touches
 a running server; point `-Exe` at a fresh build and it checks only that build. Exit code is the number
@@ -396,7 +396,7 @@ Four tiers, cheapest first:
 
 Three design points worth keeping:
 
-- **It reads `gui/models.json` and applies that model's `env` before probing.** Without this,
+- **It reads `../gui/models.json` and applies that model's `env` before probing.** Without this,
   `capabilities` reports libwebp missing when the GUI would have supplied it via
   `TENSORFOLD_LIBWEBP` — and, far worse, could pass a build the GUI would actually fail on. It
   therefore also asserts `--vision` is in `extra_args`, since its absence makes images silently
@@ -426,7 +426,7 @@ a curiosity: `truncated.jpg` (no EOI — `jpeg.zig:158` must refuse), `cmyk.jpg`
 `jpeg.zig:157`), `corrupt.webp` (`WebPGetInfo` must reject). A refusal only counts at **HTTP 400** —
 a 500 or a timeout means the decoder crashed or the server died, which is a failure, not a pass.
 
-Regenerate the fixtures with `python tests\engine\make-fixtures.py`. They are deterministic
+Regenerate the fixtures with `python ../tests/engine/make-fixtures.py`. They are deterministic
 (fixed seed, odd dimensions, both chroma subsampling ratios, lossy and lossless WebP) so the checked-in
 set does not churn.
 
@@ -439,7 +439,7 @@ step, which upstream CI only ever runs on Linux:
 tools\zig-aarch64-windows-0.17.0\zig.exe build test-codec-diagnostics-host --summary all
 ```
 
-Run from `tensorfold/zig` inside a `vcvarsall.bat arm64` environment. It builds four host tests against
+Run from `../tensorfold/` inside a `vcvarsall.bat arm64` environment. It builds four host tests against
 mock codec libraries (`missing`, `wrong`, `symbols`, `ready`) that abort on pixel work. Verified here
 2026-11-17: **16/16 steps, 12/12 tests pass on Windows ARM64.** The fuller pixel tests
 (`zig/src/core/picture/picture_test.zig`) live in the general `test` step, which compiles the whole
@@ -448,17 +448,17 @@ CUDA tree, so reach for it deliberately rather than as a pre-flight.
 ## Suggested order
 
 1. ~~JPEG — the smallest gap, and it unlocks pictures, which is the common case.~~ **Done
-   2026-11-17** via `build-jpeg.bat`.
+   2026-11-17** via `../scripts/build/build-jpeg.bat`.
 2. ~~WebP — an hour once the libwebp build pattern exists; may need no patch at all.~~ **Done
-   2026-11-17** via `build-webp.bat`, with **no fork patch** — `TENSORFOLD_LIBWEBP` in
-   `gui/models.json` does it. That same entry now carries `--vision`, so JPEG and WebP are reachable
+   2026-11-17** via `../scripts/build/build-webp.bat`, with **no fork patch** — `TENSORFOLD_LIBWEBP` in
+   `../gui/models.json` does it. That same entry now carries `--vision`, so JPEG and WebP are reachable
    from the GUI. The `serve-*.bat` launchers pass neither flag, so they still serve text only.
 3. PDF — **sourcing resolved, wiring only** (Item 4): pdfium.dll from the win_arm64 wheel loads
    here; add `--vision-pdf` and prove a live render. Cheapest win on the board.
 4. Video — the only one with a real toolchain decision; Mia's `0005` is the engine glue we need
-   after the FFmpeg DLL exists (Item 3, `MIA-V127-REVIEW.md`).
+   after the FFmpeg DLL exists (Item 3, `receipts/MIA-V127-REVIEW.md`).
 
-Before any of it ships, gate the build with `tests/engine/verify-engine.ps1`.
+Before any of it ships, gate the build with `../tests/engine/verify-engine.ps1`.
 
 ## Keep the receipt
 

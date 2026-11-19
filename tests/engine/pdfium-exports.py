@@ -11,7 +11,7 @@ Usage:
 
 turbojpeg.dll defaults to tensorfold/zig-out-v126/native/lib/turbojpeg.dll relative to
 the repo root. Exit code 0 = every required symbol present, 1 = something missing.
-See MIA-V127-REVIEW.md for the sourcing receipt (pypdfium2 5.14.0 win_arm64 wheel).
+See docs/receipts/MIA-V127-REVIEW.md for the sourcing receipt (pypdfium2 5.14.0 win_arm64 wheel).
 """
 import struct
 import sys

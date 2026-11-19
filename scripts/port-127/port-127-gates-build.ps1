@@ -18,13 +18,13 @@ try {
     [Win32.Power]::SetThreadExecutionState(0x80000001) | Out-Null
 
     Write-Output "=== $(Stamp) : P1 host gates (win-arm64/v1.2.7) ==="
-    & "$root\host-gates-127.bat" 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log -Append
+    & "$root\scripts\build\host-gates-127.bat" 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log -Append
     if ($LASTEXITCODE -ne 0) {
         Write-Output "GATES FAILED ($LASTEXITCODE) - build not started"
         $code = $LASTEXITCODE
     } else {
         Write-Output "=== $(Stamp) : P2 build -> zig-out-v127 ==="
-        & "$root\build-bolt-127.bat" 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log -Append
+        & "$root\scripts\build\build-bolt-127.bat" 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $log -Append
         $code = $LASTEXITCODE
         if ($code -eq 0) { Write-Output "=== $(Stamp) : BUILD OK ===" }
         else { Write-Output "=== $(Stamp) : BUILD FAILED ($code) ===" }

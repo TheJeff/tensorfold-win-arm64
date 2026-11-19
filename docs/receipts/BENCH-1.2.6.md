@@ -26,9 +26,9 @@ reads reported.
 
 ## Method
 
-`bench/run-ab.sh` + `bench/bench-flashnext.py`, one build at a time, alternating:
+`../../bench/run-ab.sh` + `../../bench/bench-flashnext.py`, one build at a time, alternating:
 
-- serve Qwen3.8-Flash-Next-FP4-Local with `serve-qwen38.bat`'s settings (`--parallel 2
+- serve Qwen3.8-Flash-Next-FP4-Local with `../../serve-qwen38.bat`'s settings (`--parallel 2
   --context 262144 --prompt-cache-gib 4`, `TF_FLASHNEXT_DRAFTS=6`, `TF_FLASHNEXT_GATHER_READ=pread`,
   `TENSORFOLD_MEMORY_RESERVE_GIB=4`), one server on the GPU at a time, framebuffer drained between runs;
 - every prefill prompt is **unique** (random nonce + shuffled filler) so the prefix cache cannot
@@ -45,7 +45,7 @@ Run order: 1.2.3, 1.2.6a, 1.2.3b, 1.2.6b, 1.2.6c (both Flash Next prefill knobs 
 The first two 1.2.3 runs read 1,243 / 1,402 / 1,438 tok/s prefill and looked like 1.2.6 was 20-30%
 faster. They were simply the first runs on a **cold Windows page cache**: Flash Next reads its
 n-gram embedding tables from the checkpoint files through the page cache (upstream lists this in
-`docs/known-issues.md`), so a fresh server right after a 40-minute build is 20-35% slower to
+`../../tensorfold/docs/known-issues.md`), so a fresh server right after a 40-minute build is 20-35% slower to
 prefill than the same binary later. Once 1.2.3 was re-measured warm (`1.2.3c`, `1.2.3d`) it matched
 1.2.6 exactly. **Never A/B this model on cold boots** — do a throwaway run first and score the second
 and later ones, or alternate runs and discard the first pair.
@@ -65,7 +65,7 @@ They cost nothing, so leave them on.
 ## Absolute tok/s are not general throughput
 
 The bench prompts drive MTP acceptance to 94-99% (`accepted=353/358` in the request log), because the
-replies are predictable prose about the filler. The earlier receipt in `README.md` — 110 tokens in
+replies are predictable prose about the filler. The earlier receipt in `../../README.md` — 110 tokens in
 3.57 s, ~30 tok/s — was the same model at 58% acceptance on a short answer. Both are real; the A/B
 above is valid because both builds saw identical acceptance, but do not quote 211 tok/s as this
 model's throughput.
@@ -74,7 +74,7 @@ model's throughput.
 
 `primes` hash `69577cb06964986c` on all eight runs, and the 384-token stream reply hash
 `6e035c11bd458287` on every run after the first (that one was the 128-token sample). Per-request
-`sha=` lines in `logs/serve-*.log` match one for one between builds.
+`sha=` lines in `../../logs/serve-*.log` match one for one between builds.
 
 ## Load and memory
 
@@ -97,14 +97,16 @@ not semantic:
 - the lane vtable (`zig/src/core/lanes/backend.zig`) is byte-identical between the tags, so
   `bolt_native.zig` needed no work.
 
-Build: `build-bolt-126.bat` (same toolchain as `build-bolt.bat`, `--prefix zig-out-v126` so the 1.2.3
+Build: `../../scripts/build/build-bolt-126.bat` (same toolchain as `../../scripts/build/build-bolt.bat`, `--prefix zig-out-v126` so the 1.2.3
 install stays intact). One clean `BUILD OK`, ~40 min cold, seconds warm. `tensorfold-native.exe`
 49.4 MB vs 47.3 MB for 1.2.3.
 
 ## Reproduce
 
+From the repo root:
+
 ```bash
-./build-bolt-126.bat                                            # ~40 min cold, zig-out-v126
+scripts/build/build-bolt-126.bat                                       # ~40 min cold, zig-out-v126
 STREAM_TOKENS=384 bash bench/run-ab.sh 1.2.6a tensorfold/zig-out-v126/native/bin/tensorfold-native.exe
 STREAM_TOKENS=384 bash bench/run-ab.sh 1.2.3a tensorfold/zig-out/native/bin/tensorfold-native.exe
 ```

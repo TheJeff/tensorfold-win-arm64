@@ -25,7 +25,7 @@
                              When pdfium.dll ships beside the candidate, PDF document
                              parts are rendered and read too, and a truncated PDF refused.
                              Holds the system awake while it runs (Modern Standby
-                             mid-load bugchecks this box -- see NEXT-STEPS.md).
+                             mid-load bugchecks this box -- see docs/NEXT-STEPS.md).
 
   FAILs are things that should stop a promotion. WARNs are known-absent optional
   pieces (video and PDF are not built) and do not fail the run.
@@ -126,7 +126,7 @@ if (Test-Path $Config) {
             Pass 'launch env applied' (($entry.env.PSObject.Properties.Name) -join ' ')
         }
         if (@($entry.extra_args) -contains '--vision') { Pass '--vision is in extra_args' }
-        else { Warn '--vision is in extra_args' 'no images on this model. Do not just add it: with an FP8 vision tower the checkpoint refuses to load at all -- see NEXT-STEPS.md "How to make images work here"' }
+        else { Warn '--vision is in extra_args' 'no images on this model. Do not just add it: with an FP8 vision tower the checkpoint refuses to load at all -- see docs/NEXT-STEPS.md "How to make images work here"' }
         if (-not $env:TENSORFOLD_LIBWEBP) {
             Fail 'models.json sets TENSORFOLD_LIBWEBP' 'webp.zig:20 has no Windows name, so the env var is the only route'
         }
@@ -173,7 +173,7 @@ if ($Tier -in 'Probes', 'All') {
                 'found'     { if ($o.found -eq $true) { Pass "$($e.name) found ($($e.why))" $o.soname }
                               else { Fail "$($e.name) found ($($e.why))" $o.problem } }
                 'absent-ok' { if ($o.found -eq $true) { Pass "$($e.name) found ($($e.why))" $o.soname }
-                              else { Warn "$($e.name) not built ($($e.why))" 'known gap -- see NEXT-STEPS.md' } }
+                              else { Warn "$($e.name) not built ($($e.why))" 'known gap -- see docs/NEXT-STEPS.md' } }
             }
         }
 

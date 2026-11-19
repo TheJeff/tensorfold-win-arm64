@@ -1,5 +1,5 @@
 # P4 confirmation: the 8-stream decode cell at the historical 384-token reply
-# length (BENCH-1.2.6.md's method). The 128-token runs read -10% at 8 streams
+# length (docs/receipts/BENCH-1.2.6.md's method). The 128-token runs read -10% at 8 streams
 # with huge per-stream spread; this pair decides whether that is real or a
 # short-reply MTP-acceptance artifact. Keep-awake.
 $root = 'C:\Projects\tensorfold-win-arm64'

@@ -56,8 +56,8 @@ surface, 262k contexts, tool calls and images included.
   (`--vision --vision-pdf`); the gate reads a printed word back from a rendered page and refuses a
   truncated PDF with 400.
 - **Honest A/B benchmarks.** `bench/` drives unique nonce prompts (the prefix cache cannot fake a
-  result), alternates builds on a warm page cache and keeps per-run JSON. See `BENCH-1.2.7.md`
-  (and `BENCH-1.2.6.md` for the previous port).
+  result), alternates builds on a warm page cache and keeps per-run JSON. See `docs/receipts/BENCH-1.2.7.md`
+  (and `docs/receipts/BENCH-1.2.6.md` for the previous port).
 
 llama.cpp remains a good engine — its multi-slot serving is strong — so the claim here is about the
 whole Windows-laptop experience, not a universal throughput win; no comparative llama.cpp numbers are
@@ -103,7 +103,8 @@ Already cloned without submodules: `git submodule update --init --recursive`.
 | `xgrammar/` | Pinned xgrammar source used to build `tfgrammar.dll` |
 | `gui/` | Native Zig/Win32 GUI; see [GUI README](gui/README.md) |
 | `tests/engine/` | Build gate: `verify-engine.ps1`, Pillow pixel-parity, ground-truth vision probe |
-| `scripts/` | `splice-vision-tower.py` — bf16 vision tower for the FP4 Qwen checkpoint |
+| `scripts/` | `splice-vision-tower.py` (bf16 vision tower), `build/` (engine + decoder build wrappers), `port-127/` (one-shot 1.2.7 port/bench drivers) |
+| `docs/` | `NEXT-STEPS.md` roadmap and `receipts/` — the bench and upstream-port receipts |
 | `bench/` | A/B benchmark harness and per-run JSON |
 | `local-patches/` | Historical grammar patch (**not needed** with the pinned fork) + `mia-v1.2.7/`, the applied MiaAI-Lab patch stack (MIT) |
 | `models/` | Your downloaded checkpoints (ignored by Git; create this folder) |
@@ -134,7 +135,7 @@ cd /d "%ROOT%\tensorfold"
 ```
 
 Expected output: `tensorfold/zig-out-v127/native/bin/tensorfold-native.exe`. The `--prefix` keeps an
-older `zig-out` install intact for A/B runs. `build-bolt-127.bat` wraps this but **hard-codes the
+older `zig-out` install intact for A/B runs. `scripts\build\build-bolt-127.bat` wraps this but **hard-codes the
 original developer's paths** — edit it, or use the portable commands above.
 
 ### Optional DLLs
@@ -147,8 +148,8 @@ rem Structured output / tool calls:
 "%ZIG%" build grammar -Dxgrammar="%ROOT%\xgrammar" --prefix zig-out-v127
 
 rem JPEG and WebP input decoding (run from the repo root; they find VS's own CMake/Ninja):
-build-jpeg.bat
-build-webp.bat
+scripts\build\build-jpeg.bat
+scripts\build\build-webp.bat
 ```
 
 - The fork already integrates the Bolt registration patch and recognises the Windows grammar DLL
@@ -159,7 +160,7 @@ build-webp.bat
   other versions because its pixels are qualified against Pillow's. Both DLLs are self-contained
   (static CRT, import only KERNEL32). WebP additionally needs `TENSORFOLD_LIBWEBP` pointing at
   `libwebpdecoder.dll` (the engine has no Windows name for it); the GUI profile sets that for you.
-- `build-grammar.bat` also contains an absolute checkout path; edit it if you prefer that helper.
+- `scripts\build\build-grammar.bat` also contains an absolute checkout path; edit it if you prefer that helper.
 
 ### Serve
 
@@ -256,7 +257,7 @@ rem -> models\Qwen3.8-Flash-Next-FP4-Local-vision, serve it with --vision
 
 `--vision-image-tokens` caps at **16,384** per request on 1.2.7 + mia 0002 (each image still keeps
 4,096 at most); older builds abort the load above 4,096. Full story and measured results:
-[NEXT-STEPS.md](NEXT-STEPS.md), "How to make images work here", and [MIA-V127-REVIEW.md](MIA-V127-REVIEW.md).
+[docs/NEXT-STEPS.md](docs/NEXT-STEPS.md), "How to make images work here", and [docs/receipts/MIA-V127-REVIEW.md](docs/receipts/MIA-V127-REVIEW.md).
 
 ## The build gate
 
@@ -288,7 +289,7 @@ word back, and refuses a truncated PDF.
 
 Upstream tagged **v1.2.7** (`93a2e93e`); the fork re-ports onto it on `win-arm64/v1.2.7` with
 **zero conflicts** and carries MiaAI-Lab's five Flash-Next patches (quantised vision towers, 16k
-image budgets, opt-in fp8 KV, the MXFP8 prompt tile, video wiring). `build-bolt-127.bat` builds it
+image budgets, opt-in fp8 KV, the MXFP8 prompt tile, video wiring). `scripts\build\build-bolt-127.bat` builds it
 to `zig-out-v127`; the launchers and GUI use that install, with `zig-out-v126` kept hot for
 rollback. Measured against 1.2.6 on Flash Next FP4 (alternating runs, unique prompts; a
 power-capped, cold-cache day — deltas valid, absolutes not comparable to the 1.2.6 receipt):
@@ -296,12 +297,12 @@ prefill **+1-5%**, single-stream decode **level**, 8 concurrent streams **+6.4%*
 replies (152.5 → 162.3 tok/s), replies **bit-identical**. fp8 KV admits **5 full 262k streams**
 (bf16: 3); a 255,002-token needle is found on both. PDF input and the stock vision tower are
 gate-proven. Bolt loads ~22 s and passes strict `json_schema` through `libbolt.dll` +
-`tfgrammar.dll`. Method and per-run JSON: `BENCH-1.2.7.md`, `bench/`, `UPSTREAM-1.2.7.md`,
-`MIA-V127-REVIEW.md`.
+`tfgrammar.dll`. Method and per-run JSON: `docs/receipts/BENCH-1.2.7.md`, `bench/`, `docs/receipts/UPSTREAM-1.2.7.md`,
+`docs/receipts/MIA-V127-REVIEW.md`.
 
 The previous port (v1.2.3 → **v1.2.6**, 2026-11-11, warm cache): prefill level, single-stream
-decode level, 8 streams +3.7% (197.1 → 204.3 tok/s), replies bit-identical — `BENCH-1.2.6.md`,
-`UPSTREAM-1.2.6.md`.
+decode level, 8 streams +3.7% (197.1 → 204.3 tok/s), replies bit-identical — `docs/receipts/BENCH-1.2.6.md`,
+`docs/receipts/UPSTREAM-1.2.6.md`.
 
 Reference-machine receipts (one N1X laptop; **not** guarantees):
 
@@ -340,7 +341,7 @@ Two things to know before benchmarking Flash Next yourself:
 - **GUI cannot find models:** create `models/` with each checkpoint's `config.json` and weight files.
 - **Images/PDF/video:** JPEG/WebP work as described above (`--vision`, `TENSORFOLD_LIBWEBP`); PDF
   works on 1.2.7 (`--vision-pdf`, `pdfium.dll`). FFmpeg video is still not provided — see
-  [NEXT-STEPS.md](NEXT-STEPS.md).
+  [docs/NEXT-STEPS.md](docs/NEXT-STEPS.md).
 - **`serve --help` omits the vision flags** while the CLI parses them; trust
   `capabilities --json`'s `serve.flags`, not the help text.
 
