@@ -4,59 +4,59 @@
     {
       "nominal_tokens": 2000,
       "prompt_tokens": 2134,
-      "ttft_s": 1.047,
-      "prefill_tps": 2038.3
+      "ttft_s": 6.042,
+      "prefill_tps": 353.2
     },
     {
       "nominal_tokens": 8000,
       "prompt_tokens": 8339,
-      "ttft_s": 4.095,
-      "prefill_tps": 2036.3
+      "ttft_s": 13.997,
+      "prefill_tps": 595.8
     },
     {
       "nominal_tokens": 32000,
       "prompt_tokens": 33001,
-      "ttft_s": 17.224,
-      "prefill_tps": 1916.0
+      "ttft_s": 44.568,
+      "prefill_tps": 740.5
     }
   ],
   "streams": [
     {
       "streams": 1,
-      "wall_s": 1.78,
+      "wall_s": 2.38,
       "tokens": 384,
-      "aggregate_tps": 216.3,
+      "aggregate_tps": 161.6,
       "per_stream_decode_tps": [
-        264.7
+        244.5
       ],
       "ttft_s": [
-        0.327
+        0.807
       ]
     },
     {
       "streams": 8,
-      "wall_s": 15.02,
+      "wall_s": 20.14,
       "tokens": 3072,
-      "aggregate_tps": 204.5,
+      "aggregate_tps": 152.5,
       "per_stream_decode_tps": [
-        280.5,
-        137.6,
-        111.0,
-        143.4,
-        138.3,
-        52.2,
-        137.9,
-        144.9
+        113.7,
+        106.0,
+        75.9,
+        173.4,
+        110.3,
+        42.6,
+        105.1,
+        147.7
       ],
       "ttft_s": [
-        13.654,
-        10.544,
-        0.659,
-        4.428,
-        10.961,
-        3.289,
-        7.432,
-        0.325
+        9.224,
+        4.898,
+        0.761,
+        17.929,
+        16.213,
+        6.569,
+        13.475,
+        1.536
       ]
     }
   ],

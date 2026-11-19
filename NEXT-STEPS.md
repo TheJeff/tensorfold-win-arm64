@@ -222,6 +222,18 @@ there. What's missing is the **build**:
 
 Pick (b) if video output ever needs to match the Linux receipts; (a) if it just has to decode.
 
+**Update 2026-11-19 — Mia shipped their video path (commit `7c56732a`, `VIDEO=1`).** It is
+TensorFold's own `tools/zig/build_ffmpeg.sh` (Linux bash, static prefix) over FFmpeg 9.0.2 plus
+engine patch `0005` (chai-md's #90 rebased onto v1.2.7): pure Zig wiring in
+`families/flashnext/cuda_images.zig`, `native/cuda_vision_offer.zig` and
+`vision/qwen_cuda_media.zig` — the lanes path our serve actually uses, which in v1.2.6 refuses
+video at `qwen_cuda_media.zig:67` (`QwenVideoUnsupported`). The video-capable
+`native/flashnext_images.zig` already in our tree is a different host the FlashNext registry does
+not use. `0005` on our v1.2.6: applies after `0002` except **one context-only hunk**
+(`cuda_images.zig:71`, v1.2.7's `.prep8` field). No Windows FFmpeg route in their commit — the
+two routes above stand. Mia has not served a live video even on their Spark (compile-only).
+Full review: `MIA-V127-REVIEW.md`.
+
 **Verify:** a short mp4 data URL through `/v1/chat/completions`; the reply's `tf_video_version`
 should read FFmpeg 9.0.2, and the frame description should match the clip.
 
@@ -245,11 +257,22 @@ Two things make it worth more than a fourth entry on the list:
 - It brings its own gate: PDF input needs both `--vision` **and** `--vision-pdf`
   (`cli/vision.zig` line 68), so it is a separate switch from the image path.
 
-**Unknown, and it decides the cost:** there is no published `chromium/7725` Windows ARM64 build of
-PDFium that this repo has verified. Where the other three are build problems, this may be a sourcing
-problem — PDFium normally comes from a Chromium checkout or a vendor's prebuilt, and the pin is
-specific. **Check sourcing before budgeting any build time**, and check whether upstream has grown a
-`zig build pdfium` step since.
+**Sourcing RESOLVED 2026-11-19 — no build needed.** Mia's `PDF=1` commit (`bbc91901`) takes
+PDFium out of the pinned **pypdfium2 5.14.0 wheel**, and pypdfium2 publishes a **win_arm64**
+wheel: `pypdfium2_raw/pdfium.dll`, ARM64 (PE `0xAA64`), 6,807,552 bytes, sha256
+`45e414bce25cd698d25ac7e90e91b967c9d0b5b28ca5fad6cf69c5a8ce699f40`, pdfium-binaries 156.0.8076.
+The wheel is kept in `downloads/pypdfium2-5.14.0-py3-none-win_arm64.whl`. The `chromium/7725`
+pin is advisory only — `pdf.loadDynLib` gates on symbols, not version. Verified on this box:
+`capabilities --json` reports `PDFium found:true` through `TENSORFOLD_LIBPDFIUM`, and
+`tests/engine/pdfium-exports.py` confirms all 13 required `FPDF_*` exports (plus the 3 optional
+progressive-render ones) and turbojpeg's `tj3Compress8` encoder. **Windows renders PDFs
+in-process** (`pdf.zig:218`) — the POSIX worker Mia's Linux recipe uses is compiled out here,
+so nothing Linux-only remains. **DONE 2026-11-19 on the v1.2.7 port** (`zig-out-v127`, mia
+0001-0005): pdfium.dll in `native/lib/`, `--vision-pdf` in the GUI vision profile, and the Serve
+gate — extended with `document.pdf`/`corrupt.pdf` fixtures — read the printed word back
+(`PDFIUM-OK`) and refused the truncated PDF with 400; **0 failed, 0 warned**. The stock unspliced
+checkpoint also loads with `--vision` here (0001: 77.65 GiB, 55.9 s). The v1.2.6 install stays
+text+images only. Receipts: `MIA-V127-REVIEW.md`, `UPSTREAM-1.2.7.md`.
 
 **Verify:** a PDF through the document path with `--vision --vision-pdf`; the request should be
 accepted rather than answered with `PdfiumLibraryUnavailable`.
@@ -324,7 +347,9 @@ tower is really reading pixels rather than pattern-matching the prompt:
 
 ### Still open
 
-- **Route B — teach the loader quantised vision.** `vision/qwen_cuda_weights.zig` should accept MXFP8
+- **Route B — teach the loader quantised vision. DONE via mia 0001 on `win-arm64/v1.2.7`**
+  (stock FP4-Local loads with `--vision`: 77.65 GiB, 55.9 s, Serve gate green); the splice remains
+  the route on v1.2.6. Original plan: `vision/qwen_cuda_weights.zig` should accept MXFP8
   and NVFP4 and dequantise into its bf16 sink, making the splice unnecessary. Upstream already does
   this for another family: `families/glm/cuda_vision.zig:555` maps `model.visual.*` to `.mxfp8` /
   `.w4a16_nvfp4`, with `core/quant/keys.zig` canonicalising the prefix — so the format code exists.
@@ -428,8 +453,10 @@ CUDA tree, so reach for it deliberately rather than as a pre-flight.
    2026-11-17** via `build-webp.bat`, with **no fork patch** — `TENSORFOLD_LIBWEBP` in
    `gui/models.json` does it. That same entry now carries `--vision`, so JPEG and WebP are reachable
    from the GUI. The `serve-*.bat` launchers pass neither flag, so they still serve text only.
-3. PDF — sourcing check first (Item 4); upstream built its Windows loader path for this one.
-4. Video — the only one with a real toolchain decision.
+3. PDF — **sourcing resolved, wiring only** (Item 4): pdfium.dll from the win_arm64 wheel loads
+   here; add `--vision-pdf` and prove a live render. Cheapest win on the board.
+4. Video — the only one with a real toolchain decision; Mia's `0005` is the engine glue we need
+   after the FFmpeg DLL exists (Item 3, `MIA-V127-REVIEW.md`).
 
 Before any of it ships, gate the build with `tests/engine/verify-engine.ps1`.
 

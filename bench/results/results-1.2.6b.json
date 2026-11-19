@@ -4,64 +4,64 @@
     {
       "nominal_tokens": 2000,
       "prompt_tokens": 2134,
-      "ttft_s": 1.068,
-      "prefill_tps": 1997.3
+      "ttft_s": 5.471,
+      "prefill_tps": 390.1
     },
     {
       "nominal_tokens": 8000,
       "prompt_tokens": 8339,
-      "ttft_s": 4.459,
-      "prefill_tps": 1870.3
+      "ttft_s": 14.035,
+      "prefill_tps": 594.2
     },
     {
       "nominal_tokens": 32000,
       "prompt_tokens": 33001,
-      "ttft_s": 19.229,
-      "prefill_tps": 1716.2
+      "ttft_s": 42.886,
+      "prefill_tps": 769.5
     }
   ],
   "streams": [
     {
       "streams": 1,
-      "wall_s": 1.81,
-      "tokens": 384,
-      "aggregate_tps": 212.4,
+      "wall_s": 1.5,
+      "tokens": 128,
+      "aggregate_tps": 85.2,
       "per_stream_decode_tps": [
-        260.3
+        139.1
       ],
       "ttft_s": [
-        0.335
+        0.587
       ]
     },
     {
       "streams": 8,
-      "wall_s": 15.04,
-      "tokens": 3072,
-      "aggregate_tps": 204.2,
+      "wall_s": 10.75,
+      "tokens": 1024,
+      "aggregate_tps": 95.3,
       "per_stream_decode_tps": [
-        138.3,
-        137.6,
-        121.2,
-        137.0,
-        124.7,
-        69.9,
-        137.5,
-        166.1
+        73.4,
+        112.2,
+        48.1,
+        76.4,
+        145.2,
+        35.1,
+        115.8,
+        72.1
       ],
       "ttft_s": [
-        3.739,
-        3.315,
-        9.968,
-        6.431,
-        0.323,
-        9.556,
-        6.847,
-        0.662
+        0.585,
+        1.183,
+        7.415,
+        2.869,
+        9.87,
+        5.721,
+        3.434,
+        5.119
       ]
     }
   ],
   "reply_hashes": {
-    "streams1": "6e035c11bd458287",
+    "streams1": "bf91a34a74215605",
     "primes": "69577cb06964986c"
   },
   "primes_reply": "We need answer user: \"List the first eight prime numbers, comma separated, and nothing else.\" Need final only comma separated first eight primes: 2, 3, 5, 7, 11, 13, 17, 19. Ensure nothing else."

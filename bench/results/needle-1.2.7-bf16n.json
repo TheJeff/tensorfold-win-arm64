@@ -1,0 +1,9 @@
+{
+ "label": "1.2.7-bf16n",
+ "prompt_tokens": 255002,
+ "completion_tokens": 9,
+ "needle_found": true,
+ "reply": "VIOLET-7391",
+ "seconds": 145.5,
+ "haystack_lines": 7922
+}

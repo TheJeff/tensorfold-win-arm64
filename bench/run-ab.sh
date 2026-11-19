@@ -21,6 +21,9 @@ PORT=${PORT:-8084}
 PARALLEL=${PARALLEL:-2}
 CONTEXT=${CONTEXT:-262144}
 PROMPT_CACHE_GIB=${PROMPT_CACHE_GIB:-4}
+KV_CACHE=${KV_CACHE:-}          # bf16|fp8 -> --kv-cache (mia 0003; empty = engine default bf16)
+STREAMS=${STREAMS:-1,8}         # bench decode stream counts
+NEEDLE=${NEEDLE:-0}             # 1 = run the 200k needle after the bench, same server
 MODEL="$ROOT/models/Qwen3.8-Flash-Next-FP4-Local"
 LOG="$ROOT/logs/serve-$LABEL.log"
 OUT="$ROOT/bench/results/results-$LABEL.json"
@@ -53,24 +56,39 @@ port_free() {
 
 kill_server
 wait_vram_free || { echo "  refusing to bench against a stale server"; exit 1; }
-port_free || { echo "  refusing: port $PORT is already listening"; exit 1; }
+# The listener can linger ~10 s after Stop-Process even once the process is gone
+# from tasklist and the framebuffer drained. Wait for it instead of refusing on
+# the first stale netstat read (hit 2026-11-19: three runs lost to a 1 s-old entry).
+for _ in $(seq 1 30); do
+  port_free && break
+  sleep 1
+done
+port_free || { echo "  refusing: port $PORT is still listening after 30 s"; exit 1; }
 
 echo "=== $LABEL: $EXE"
 : > "$LOG"
+KVARGS=()
+[ -n "$KV_CACHE" ] && KVARGS=(--kv-cache "$KV_CACHE")
 TENSORFOLD_MEMORY_RESERVE_GIB=4 TF_FLASHNEXT_DRAFTS=6 TF_FLASHNEXT_GATHER_READ=pread \
 TENSORFOLD_NO_UPDATE_CHECK=1 \
 "$EXE" serve "$MODEL" \
   --name Qwen3.8-Flash-Next --host 127.0.0.1 --port "$PORT" \
-  --parallel "$PARALLEL" --context "$CONTEXT" --prompt-cache-gib "$PROMPT_CACHE_GIB" \
+  --parallel "$PARALLEL" --context "$CONTEXT" --prompt-cache-gib "$PROMPT_CACHE_GIB" "${KVARGS[@]}" \
   >> "$LOG" 2>&1 &
 SERVE_PID=$!
 
 start=$(date +%s)
 python "$ROOT/bench/bench-flashnext.py" --label "$LABEL" \
-  --stream-tokens "${STREAM_TOKENS:-128}" \
+  --stream-tokens "${STREAM_TOKENS:-128}" --streams "$STREAMS" \
   --base-url "http://127.0.0.1:$PORT/v1" --out "$OUT"
 rc=$?
 echo "=== $LABEL: bench rc=$rc after $(( $(date +%s) - start ))s"
+
+if [ "$NEEDLE" = 1 ]; then
+  python "$ROOT/bench/needle-200k.py" --label "$LABEL" \
+    --base-url "http://127.0.0.1:$PORT/v1" --out "$ROOT/bench/results/needle-$LABEL.json"
+  echo "=== $LABEL: needle rc=$?"
+fi
 
 nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1 | sed 's/^/  resident MiB: /'
 grep -m1 -E '^tensorfold-native [0-9]' "$LOG" | sed 's/^/  engine: /'

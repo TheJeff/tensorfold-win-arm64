@@ -1,0 +1,9 @@
+{
+ "label": "1.2.7-fp8x3",
+ "prompt_tokens": 255002,
+ "completion_tokens": 9,
+ "needle_found": true,
+ "reply": "VIOLET-7391",
+ "seconds": 161.8,
+ "haystack_lines": 7922
+}

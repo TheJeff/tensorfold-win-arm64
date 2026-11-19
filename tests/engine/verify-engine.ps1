@@ -22,6 +22,8 @@
     Serve   (minutes, GPU)   boots a model and proves images survive the vision
                              tower into a reply, plus the negative cases: a JPEG with
                              no end marker and a CMYK JPEG must both be refused.
+                             When pdfium.dll ships beside the candidate, PDF document
+                             parts are rendered and read too, and a truncated PDF refused.
                              Holds the system awake while it runs (Modern Standby
                              mid-load bugchecks this box -- see NEXT-STEPS.md).
 
@@ -32,8 +34,10 @@
   Path to tensorfold-native.exe. Defaults to the installed 1.2.6 tree.
 
 .PARAMETER Model
-  Model directory to boot for -Tier Serve. Defaults to the spliced bf16-tower tree;
-  the stock FP4-Local aborts the whole load when --vision is forced on it.
+  Model directory to boot for -Tier Serve. Defaults to the spliced bf16-tower tree.
+  On pre-0001 builds the stock FP4-Local aborts when --vision is forced on it; with
+  v1.2.7 + mia 0001 the quantised tower decodes to bf16 at load, so stock boots too
+  (that boot is the 0001 acceptance test).
 
 .EXAMPLE
   .\verify-engine.ps1
@@ -203,6 +207,7 @@ if ($Tier -in 'Serve', 'Vision', 'All') {
     # the GPU through a reload. The GPU guards below only apply when we boot our own.
     $launched = $false
     $p = $null
+    $pdfOn = $false
     if ($Tier -eq 'Vision' -and -not $Attach) {
         Fail 'Vision tier needs a server to talk to' 'pass -Attach http://127.0.0.1:PORT, or use -Tier Serve to boot one'
         exit $fails
@@ -246,9 +251,15 @@ if ($Tier -in 'Serve', 'Vision', 'All') {
     # Start-Process joins -ArgumentList with spaces and does NOT quote elements that
     # contain spaces, so a model name like "Qwen3.8 Flash Next FP4 Local" arrives as
     # four arguments and argparse rejects it. Quote it ourselves.
+    # PDF document parts ride along when the candidate ships pdfium.dll beside it
+    # (the v1.2.7 install does). Older installs keep the old flag set and WARN below.
+    $libdir = Join-Path (Split-Path -Parent (Split-Path -Parent $Exe)) 'lib'
+    $pdfOn = Test-Path (Join-Path $libdir 'pdfium.dll')
+    $serveArgs = @('serve', "`"$Model`"", '--name', "`"$Name`"", '--host', '127.0.0.1', '--port', $Port,
+                   '--context', '8192', '--parallel', '1', '--prompt-cache-gib', '2', '--vision')
+    if ($pdfOn) { $serveArgs += '--vision-pdf' }
     $p = Start-Process -FilePath $Exe -PassThru -WindowStyle Hidden `
-        -ArgumentList @('serve', "`"$Model`"", '--name', "`"$Name`"", '--host', '127.0.0.1', '--port', $Port,
-                        '--context', '8192', '--parallel', '1', '--prompt-cache-gib', '2', '--vision') `
+        -ArgumentList $serveArgs `
         -RedirectStandardOutput $log -RedirectStandardError $errlog
 
     Write-Host "  waiting for :$Port (log $log)" -ForegroundColor DarkGray
@@ -363,6 +374,39 @@ if ($Tier -in 'Serve', 'Vision', 'All') {
                 else { Fail "$($neg.file) refused with 400 ($($neg.why))" ("HTTP $sc " + ($_.Exception.Message -replace '\s+', ' ')) }
             }
         }
+        # PDF document parts: Windows renders them in-process (pdf.zig:218), so the
+        # printed word is a fact that exists only if PDFium really rendered the page.
+        if ($imagesWorked -and ($pdfOn -or $Attach)) {
+            $doc = Join-Path $fixtures 'document.pdf'
+            if (-not (Test-Path $doc)) { Fail 'document.pdf fixture exists' }
+            else {
+                try {
+                    $r = Chat (ImageContent $doc 'application/pdf' 'What text is printed at the top of this document? Answer with the exact text only.') 64 $NoThink
+                    $txt = ([string]$r.choices[0].message.content -replace '\s+', ' ').Trim()
+                    if (-not $txt) { $txt = ([string]$r.choices[0].message.reasoning_content -replace '\s+', ' ').Trim() }
+                    if ($txt -match 'PDFIUM') { Pass 'document.pdf rendered and read' $txt }
+                    else { Fail 'document.pdf rendered and read' "no PDFIUM in reply: $txt" }
+                } catch {
+                    $sc = 0
+                    if ($_.Exception.Response) { $sc = [int]$_.Exception.Response.StatusCode }
+                    if ($Attach -and $sc -eq 400) { Warn 'document.pdf rendered and read' 'HTTP 400 -- the attached server may have PDF off (--vision-pdf)' }
+                    else { Fail 'document.pdf rendered and read' ("HTTP $sc " + ($_.Exception.Message -replace '\s+', ' ')) }
+                }
+                $bad = Join-Path $fixtures 'corrupt.pdf'
+                if (Test-Path $bad) {
+                    try {
+                        $r = Chat (ImageContent $bad 'application/pdf' 'Describe this.') 32 $NoThink
+                        Fail 'corrupt.pdf refused' ('accepted, said: ' + [string]$r.choices[0].message.content)
+                    } catch {
+                        $sc = 0
+                        if ($_.Exception.Response) { $sc = [int]$_.Exception.Response.StatusCode }
+                        if ($sc -eq 400) { Pass 'corrupt.pdf refused' 'HTTP 400' }
+                        else { Fail 'corrupt.pdf refused with 400' ("HTTP $sc " + ($_.Exception.Message -replace '\s+', ' ')) }
+                    }
+                }
+            }
+        } elseif ($imagesWorked) { Warn 'PDF path not assessed' 'pdfium.dll absent beside the candidate exe' }
+
         # Ground truth. Fluent prose proves nothing -- a model that ignored the image
         # would still describe one -- so this asks questions whose answers exist only in
         # the pixels, drawn by the code that knows the answers, and asserts that an image

@@ -13,10 +13,10 @@ Windows binary, and the whole path is verified by a gate you can re-run. Day-to-
 better on this laptop than the llama.cpp-under-NVIDIA's-recipes route: one stack, a real control
 surface, 262k contexts, tool calls and images included.
 
-> **Status:** source-build project, not an installer. Text generation, structured output/tool calls
-> and JPEG/WebP images are measured working on the reference machine; FFmpeg video and PDFium are not
-> built yet. A fresh checkout on another machine has not been end-to-end verified, and the numbers
-> below are one-machine receipts, not reproducibility guarantees.
+> **Status:** source-build project, not an installer. Text generation, structured output/tool calls,
+> JPEG/WebP images and **PDF input** are measured working on the reference machine (engine 1.2.7);
+> FFmpeg video is not built yet. A fresh checkout on another machine has not been end-to-end
+> verified, and the numbers below are one-machine receipts, not reproducibility guarantees.
 
 ## What you get
 
@@ -26,19 +26,25 @@ surface, 262k contexts, tool calls and images included.
   version it is actually talking to. The launch command is data (`gui/serve.json`), not compiled-in
   Zig, and each model carries its own profile. Four skins; headless `--shot`/`--plan` dev aids.
 - **Long context on one GPU.** Qwen3.8 Flash-Next FP4 serves a **262,144-token** window at 72.7 GiB
-  resident of the 96 GiB framebuffer, ~41 s to serving. Bolt 74B-A9B held **16 streams at 262k in
-  34.7 GB** of the framebuffer.
+  resident of the 96 GiB framebuffer. Opt-in fp8 KV (MiaAI-Lab patch 0003) admits **5 concurrent
+  full 262k streams** where bf16 caps at 3; a 255,002-token needle was found on both. Bolt 74B-A9B
+  held **16 streams at 262k in 34.7 GB** of the framebuffer.
 - **Speculative decoding and prompt caching.** MTP drafts on both families; a 4 GiB prompt cache in
   the default profiles.
 - **Structured output and tool calls.** `tfgrammar.dll` built from the pinned xgrammar; strict
   `json_schema` and `tool_choice: "required"` verified on Bolt.
 - **Images that are tested, not assumed.** `turbojpeg.dll` 3.1.4.1 and `libwebpdecoder.dll` 1.6.0 are
-  built here and decode **pixel-exact against Pillow**; `scripts/splice-vision-tower.py` gives the FP4
-  Qwen checkpoint a bf16 vision tower (the export quantised it, and the CUDA loader accepts only
-  bf16); the gate then asserts the tower actually read the pixels — 5/5 ground-truth facts, 560 vs 26
-  prompt tokens, broken inputs refused with HTTP 400.
+  built here and decode **pixel-exact against Pillow**. On 1.2.7 the stock FP4 checkpoint's quantised
+  vision tower decodes to bf16 at load (MiaAI-Lab patch 0001), so `--vision` works without surgery;
+  `scripts/splice-vision-tower.py` remains the route on older builds. The gate asserts the tower
+  actually read the pixels — 5/5 ground-truth facts, 560 vs 26 prompt tokens, broken inputs refused
+  with HTTP 400.
+- **PDF input.** `pdfium.dll` from the pypdfium2 win_arm64 wheel renders pages in-process on Windows
+  (`--vision --vision-pdf`); the gate reads a printed word back from a rendered page and refuses a
+  truncated PDF with 400.
 - **Honest A/B benchmarks.** `bench/` drives unique nonce prompts (the prefix cache cannot fake a
-  result), alternates builds on a warm page cache and keeps per-run JSON. See `BENCH-1.2.6.md`.
+  result), alternates builds on a warm page cache and keeps per-run JSON. See `BENCH-1.2.7.md`
+  (and `BENCH-1.2.6.md` for the previous port).
 
 llama.cpp remains a good engine — its multi-slot serving is strong — so the claim here is about the
 whole Windows-laptop experience, not a universal throughput win; no comparative llama.cpp numbers are
@@ -79,17 +85,17 @@ Already cloned without submodules: `git submodule update --init --recursive`.
 
 | Path | Purpose |
 | --- | --- |
-| `tensorfold/` | Pinned [TheJeff/TensorFold](https://github.com/TheJeff/TensorFold) fork, on the v1.2.6-based Windows ARM64 port (`win-arm64/v1.2.6`) |
+| `tensorfold/` | Pinned [TheJeff/TensorFold](https://github.com/TheJeff/TensorFold) fork, on the v1.2.7-based Windows ARM64 port (`win-arm64/v1.2.7`, upstream v1.2.7 + MiaAI-Lab patches 0001-0005) |
 | `bolt-recipe/` | Pinned Bolt recipe; `engine/` supplies the CUDA sources for `bolt.dll` |
 | `xgrammar/` | Pinned xgrammar source used to build `tfgrammar.dll` |
 | `gui/` | Native Zig/Win32 GUI; see [GUI README](gui/README.md) |
 | `tests/engine/` | Build gate: `verify-engine.ps1`, Pillow pixel-parity, ground-truth vision probe |
 | `scripts/` | `splice-vision-tower.py` — bf16 vision tower for the FP4 Qwen checkpoint |
 | `bench/` | A/B benchmark harness and per-run JSON |
-| `local-patches/` | Historical grammar loader patch, **not needed** with the pinned fork |
+| `local-patches/` | Historical grammar patch (**not needed** with the pinned fork) + `mia-v1.2.7/`, the applied MiaAI-Lab patch stack (MIT) |
 | `models/` | Your downloaded checkpoints (ignored by Git; create this folder) |
 | `tools/` | Local Zig toolchain (ignored by Git) |
-| `tensorfold/zig-out-v126/`, `gui/zig-out/` | Build outputs (not committed). `tensorfold/zig-out/` holds an older 1.2.3 build if you keep one for A/B runs |
+| `tensorfold/zig-out-v127/`, `gui/zig-out/` | Build outputs (not committed). Older installs (`zig-out-v126/`, `zig-out/`) are kept for A/B runs and rollback |
 
 The submodule commit IDs, not a moving branch tip, determine what you build. Keep them at their
 recorded commits when reproducing this setup.
@@ -111,21 +117,21 @@ set "ZIG=%ROOT%\tools\zig-aarch64-windows-0.17.0\zig.exe"
 "%ZIG%" version
 "%CUDA_PATH%\bin\nvcc.exe" --version
 cd /d "%ROOT%\tensorfold"
-"%ZIG%" build native install -Dsm=121 -Dstrip=true -Dnvcc="%CUDA_PATH%\bin\nvcc.exe" --prefix zig-out-v126
+"%ZIG%" build native install -Dsm=121 -Dstrip=true -Dnvcc="%CUDA_PATH%\bin\nvcc.exe" --prefix zig-out-v127
 ```
 
-Expected output: `tensorfold/zig-out-v126/native/bin/tensorfold-native.exe`. The `--prefix` keeps an
-older `zig-out` install intact for A/B runs. `build-bolt-126.bat` wraps this but **hard-codes the
+Expected output: `tensorfold/zig-out-v127/native/bin/tensorfold-native.exe`. The `--prefix` keeps an
+older `zig-out` install intact for A/B runs. `build-bolt-127.bat` wraps this but **hard-codes the
 original developer's paths** — edit it, or use the portable commands above.
 
 ### Optional DLLs
 
 ```bat
 rem Bolt backend (only for Nemotron 3.5 Bolt; Qwen families do not use it):
-"%ZIG%" build native bolt install -Dsm=121 -Dstrip=true -Dnvcc="%CUDA_PATH%\bin\nvcc.exe" -Dbolt-src="%ROOT%\bolt-recipe\engine" --prefix zig-out-v126
+"%ZIG%" build native bolt install -Dsm=121 -Dstrip=true -Dnvcc="%CUDA_PATH%\bin\nvcc.exe" -Dbolt-src="%ROOT%\bolt-recipe\engine" --prefix zig-out-v127
 
 rem Structured output / tool calls:
-"%ZIG%" build grammar -Dxgrammar="%ROOT%\xgrammar" --prefix zig-out-v126
+"%ZIG%" build grammar -Dxgrammar="%ROOT%\xgrammar" --prefix zig-out-v127
 
 rem JPEG and WebP input decoding (run from the repo root; they find VS's own CMake/Ninja):
 build-jpeg.bat
@@ -134,7 +140,7 @@ build-webp.bat
 
 - The fork already integrates the Bolt registration patch and recognises the Windows grammar DLL
   name. **Do not re-apply `patches/0002` or `local-patches/0001-grammar-dll-windows.patch`.**
-- A `tfgrammar.dll` built for the previous tag still serves structured output on 1.2.6 (verified with
+- A `tfgrammar.dll` built for the previous tag still serves structured output on 1.2.7 (verified with
   a strict `json_schema` on Bolt), so an existing DLL can simply be copied into the new `lib/`.
 - The decoder builds pin **libjpeg-turbo 3.1.4.1** and **libwebp 1.6.0** exactly — the engine refuses
   other versions because its pixels are qualified against Pillow's. Both DLLs are self-contained
@@ -170,7 +176,7 @@ set "BOLT_SSM_LAZY=1"
 set "BOLT_DRAFT_Q8=1"
 set "BOLT_NV4_FP4=1"
 set "TENSORFOLD_NO_UPDATE_CHECK=1"
-"%ROOT%\tensorfold\zig-out-v126\native\bin\tensorfold-native.exe" serve "%ROOT%\models\Nemotron-3.5-Bolt-74B-A9B-24GB" --name Nemotron-3.5-Bolt --host 127.0.0.1 --port 8082 --parallel 4 --context 131072 --prompt-cache-gib 4
+"%ROOT%\tensorfold\zig-out-v127\native\bin\tensorfold-native.exe" serve "%ROOT%\models\Nemotron-3.5-Bolt-74B-A9B-24GB" --name Nemotron-3.5-Bolt --host 127.0.0.1 --port 8082 --parallel 4 --context 131072 --prompt-cache-gib 4
 ```
 
 Without a matching drafter, remove `BOLT_DRAFT` and consult the recipe for non-draft serving; do not
@@ -183,12 +189,13 @@ set "TENSORFOLD_MEMORY_RESERVE_GIB=4"
 set "TF_FLASHNEXT_DRAFTS=6"
 set "TF_FLASHNEXT_GATHER_READ=pread"
 set "TENSORFOLD_NO_UPDATE_CHECK=1"
-"%ROOT%\tensorfold\zig-out-v126\native\bin\tensorfold-native.exe" serve "%ROOT%\models\Qwen3.8-Flash-Next-FP4-Local" --name Qwen3.8-Flash-Next --host 127.0.0.1 --port 8083 --parallel 2 --context 262144 --prompt-cache-gib 4 --dashboard --metrics-open
+"%ROOT%\tensorfold\zig-out-v127\native\bin\tensorfold-native.exe" serve "%ROOT%\models\Qwen3.8-Flash-Next-FP4-Local" --name Qwen3.8-Flash-Next --host 127.0.0.1 --port 8083 --parallel 2 --context 262144 --prompt-cache-gib 4 --dashboard --metrics-open
 ```
 
 The 262k example needs a suitably large device-memory budget; reduce `--parallel`/`--context`
-otherwise. This family keeps **bf16 KV** on the Windows CUDA path (fp8 is refused). For images, add
-`--vision` and serve the spliced checkpoint below.
+otherwise. KV defaults to **bf16**; `--kv-cache fp8` (MiaAI-Lab 0003, opt-in, lossy) admits 5 full
+262k streams instead of 3. For images add `--vision` — the stock checkpoint works on 1.2.7 (0001);
+for PDFs add `--vision-pdf` with `pdfium.dll` in `lib/`.
 
 ### Smoke test
 
@@ -212,7 +219,7 @@ model loaded. Structured `response_format` and required tool calls additionally 
 hybrids and `qwen4_exp` (Qwen3.8 Flash-Next) among others; compatibility depends on architecture and
 checkpoint format, not on a name containing "Qwen". Check
 `tensorfold-native.exe info <checkpoint-dir>` and the
-[fork's Windows documentation](https://github.com/TheJeff/TensorFold/blob/win-arm64/v1.2.6/docs/WINDOWS.md)
+[fork's Windows documentation](https://github.com/TheJeff/TensorFold/blob/win-arm64/v1.2.7/docs/WINDOWS.md)
 before trying another checkpoint. GUI discovery is not proof of engine support.
 
 Download snapshots into `models/` under these directory names (weights are not in this repo; respect
@@ -222,21 +229,21 @@ the publishers' licenses and keep original metadata and shards):
 - `models/Nemotron-3.5-Bolt-LiLiCorr/` — the matching Bolt drafter (optional)
 - `models/Qwen3.8-Flash-Next-FP4-Local/` — `nvidia/Qwen3.8-Flash-Next-FP4-Local`
 
-**Images:** the FP4 export quantised its vision tower, and `vision/qwen_cuda_weights.zig` accepts
-only bf16 — `--vision` on the stock checkpoint aborts the whole load. The splice grafts the bf16
-tower from `nvidia/Qwen3.8-Flash-Next-NVFP4-QAD` (whose own export left the tower alone) without
-touching the original: everything else is hardlinked, the rewritten shard's non-visual bytes are
-identical by construction, and a 15-check verifier ends in `SPLICE OK`.
+**Images:** the FP4 export quantised its vision tower. On **1.2.7 + mia 0001** the loader decodes
+MXFP8/NVFP4 towers to bf16 at load, so `--vision` on the stock checkpoint just works (77.65 GiB,
+55.9 s measured). On older builds the splice grafts the bf16 tower from
+`nvidia/Qwen3.8-Flash-Next-NVFP4-QAD` (whose own export left the tower alone) without touching the
+original: everything else is hardlinked, the rewritten shard's non-visual bytes are identical by
+construction, and a 15-check verifier ends in `SPLICE OK`.
 
 ```bat
 python scripts\splice-vision-tower.py
 rem -> models\Qwen3.8-Flash-Next-FP4-Local-vision, serve it with --vision
 ```
 
-Keep `--vision-image-tokens` at **4096 or below** on this family: the CUDA media layer's
-`checkLimits` aborts the load above it even though the CLI accepts more. Full story, measured
-results and the remaining routes (teach the loader quantised towers; report the packaging bug):
-[NEXT-STEPS.md](NEXT-STEPS.md), "How to make images work here".
+`--vision-image-tokens` caps at **16,384** per request on 1.2.7 + mia 0002 (each image still keeps
+4,096 at most); older builds abort the load above 4,096. Full story and measured results:
+[NEXT-STEPS.md](NEXT-STEPS.md), "How to make images work here", and [MIA-V127-REVIEW.md](MIA-V127-REVIEW.md).
 
 ## The build gate
 
@@ -260,25 +267,38 @@ cheapest first:
 Modern Standby entry mid-load bugchecks this box (0x19C, the NVIDIA display-power watchdog —
 observed 2026-11-18). It also reads `gui/models.json` and applies that model's env before probing,
 so it tests the environment the GUI actually creates. Upstream's own loader tests run here too:
-`zig build test-codec-diagnostics-host --summary all` from `tensorfold/zig` (12/12 on Windows ARM64).
+`zig build test-codec-diagnostics-host --summary all` from `tensorfold/` (12/12 on Windows ARM64).
+On installs shipping `pdfium.dll`, the Serve tier also renders a PDF fixture and reads its printed
+word back, and refuses a truncated PDF.
 
-## Engine 1.2.6 and the receipts
+## Engine 1.2.7 and the receipts
 
-Upstream tagged **v1.2.6** on 2026-11-10, 1406 commits past the v1.2.3 base this guide used to pin.
-The fork re-ports it on `win-arm64/v1.2.6`; `build-bolt-126.bat` builds it to `zig-out-v126`, and the
-launchers and GUI use that install. Measured against 1.2.3 on Flash Next FP4 (warm cache, medians of
-alternating runs, unique prompts): prefill **level** (2K +6%, 8K −1%, 32K +1%), single-stream decode
-**level**, 8 concurrent streams **+3.7%** aggregate (197.1 → 204.3 tok/s), replies bit-identical.
-Bolt loads in ~25 s and answers through `libbolt.dll` as before. Method and per-run JSON:
-`BENCH-1.2.6.md`, `bench/`, `UPSTREAM-1.2.6.md`.
+Upstream tagged **v1.2.7** (`93a2e93e`); the fork re-ports onto it on `win-arm64/v1.2.7` with
+**zero conflicts** and carries MiaAI-Lab's five Flash-Next patches (quantised vision towers, 16k
+image budgets, opt-in fp8 KV, the MXFP8 prompt tile, video wiring). `build-bolt-127.bat` builds it
+to `zig-out-v127`; the launchers and GUI use that install, with `zig-out-v126` kept hot for
+rollback. Measured against 1.2.6 on Flash Next FP4 (alternating runs, unique prompts; a
+power-capped, cold-cache day — deltas valid, absolutes not comparable to the 1.2.6 receipt):
+prefill **+1-5%**, single-stream decode **level**, 8 concurrent streams **+6.4%** at 384-token
+replies (152.5 → 162.3 tok/s), replies **bit-identical**. fp8 KV admits **5 full 262k streams**
+(bf16: 3); a 255,002-token needle is found on both. PDF input and the stock vision tower are
+gate-proven. Bolt loads ~22 s and passes strict `json_schema` through `libbolt.dll` +
+`tfgrammar.dll`. Method and per-run JSON: `BENCH-1.2.7.md`, `bench/`, `UPSTREAM-1.2.7.md`,
+`MIA-V127-REVIEW.md`.
+
+The previous port (v1.2.3 → **v1.2.6**, 2026-11-11, warm cache): prefill level, single-stream
+decode level, 8 streams +3.7% (197.1 → 204.3 tok/s), replies bit-identical — `BENCH-1.2.6.md`,
+`UPSTREAM-1.2.6.md`.
 
 Reference-machine receipts (one N1X laptop; **not** guarantees):
 
 | Workload | Result |
 | --- | --- |
-| Qwen3.8 Flash-Next FP4, 262k window | 41 s load → 72.7 GiB resident; ~30 tok/s single-stream prose |
+| Qwen3.8 Flash-Next FP4, 262k window | 51-56 s load → 72.76 GiB weights (2026-11-19, power-capped day); 41 s / 72.7 GiB on the warm 1.2.6 day; ~30 tok/s single-stream prose (warm day) |
+| fp8 KV (mia 0003, opt-in) | 5 full 262k streams admitted (4.72 GiB each vs bf16's 7.86, which caps at 3); 255,002-token needle found on bf16 and fp8 |
+| PDF input (2026-11-19 gate) | page rendered in-process, printed word read back (`PDFIUM-OK`); truncated PDF refused 400 |
 | Bolt 74B-A9B + LiLiCorr (TF 1.1.6 receipt, 2026-11-01, commit `dab7cd6`) | 26 s load; 88.7 tok/s prose / 145.4 code solo; 240.9 aggregate @4 streams, 446.2 @16; 16×262k held 34.7 GB |
-| Images (2026-11-18 gate) | 0 failed, 0 warned: pixel parity 8/8, 5/5 ground-truth facts, 560 vs 26 prompt tokens, 6 refusals at HTTP 400 |
+| Images (2026-11-19 gate, 1.2.7) | 0 failed, 0 warned: pixel parity 8/8, 5/5 ground-truth facts, 560 vs 26 prompt tokens, 6 refusals at HTTP 400; stock unspliced tower loads with `--vision` |
 
 Two things to know before benchmarking Flash Next yourself:
 
@@ -296,16 +316,18 @@ Two things to know before benchmarking Flash Next yourself:
   environment was activated in the **same Command Prompt** used for building.
 - **Patch rejects / CRLF errors:** `.gitattributes` now handles this; do not manually reapply the
   Bolt or grammar patches to the pinned fork.
-- **Missing `bolt.dll` / `tfgrammar.dll`:** check `zig-out-v126/native/lib/`. Grammar is optional for
+- **Missing `bolt.dll` / `tfgrammar.dll`:** check `zig-out-v127/native/lib/`. Grammar is optional for
   plain text, required for grammar-constrained requests.
 - **Out-of-memory / load failure:** check free CUDA memory and lower context/parallelism; weight
   size alone does not describe peak load/runtime requirements. `info`'s "memory floor" includes a
   runtime margin and can exceed the framebuffer while the loader still packs the model — try the
   load, and budget headroom with `TENSORFOLD_MEMORY_RESERVE_GIB` (2-4 GiB suits this box).
-- **`BadImageLimits` at load:** `--vision-image-tokens` above the family's 4096 cap; lower it.
+- **`BadImageLimits` at load:** `--vision-image-tokens` above the cap — 16,384 on 1.2.7 + mia 0002,
+  4,096 on older builds; lower it.
 - **GUI cannot find models:** create `models/` with each checkpoint's `config.json` and weight files.
-- **Images/video:** JPEG/WebP work as described above (`--vision`, `TENSORFOLD_LIBWEBP`, bf16 tower).
-  FFmpeg video and PDFium are still not provided — see [NEXT-STEPS.md](NEXT-STEPS.md).
+- **Images/PDF/video:** JPEG/WebP work as described above (`--vision`, `TENSORFOLD_LIBWEBP`); PDF
+  works on 1.2.7 (`--vision-pdf`, `pdfium.dll`). FFmpeg video is still not provided — see
+  [NEXT-STEPS.md](NEXT-STEPS.md).
 - **`serve --help` omits the vision flags** while the CLI parses them; trust
   `capabilities --json`'s `serve.flags`, not the help text.
 
@@ -315,11 +337,8 @@ revisions, build flags, context, concurrency and measurement method.
 ## What's still missing
 
 - **Video** (`tfvideo.dll`): FFmpeg 9.0.2 for winarm64 exists only as BtbN's *shared* zip; two routes
-  (import-lib link vs faithful static source build) are costed in NEXT-STEPS item 3.
-- **PDF** (`pdfium.dll`): upstream already wrote the Windows loader path for this one; the open
-  question is sourcing a `chromium/7725` ARM64 Windows build (NEXT-STEPS item 4).
-- **Quantised vision towers:** teaching `qwen_cuda_weights.zig` MXFP8/NVFP4 (the GLM family already
-  does) would make the splice unnecessary — engine work, upstream ATC workflow.
+  (import-lib link vs faithful static source build) are costed in NEXT-STEPS item 3. The engine
+  wiring (mia 0005) is already in the branch, inert until the DLL exists.
 - **EXL3** checkpoints have no Zig loader; that format lives in the Python CUDA engine only.
 - Upstream ships **no windows-arm64 prebuilt** (linux x86_64/aarch64 + macos only). This fork is the
   reproduction of the `aarch64-windows`/`sm_121` receipt that upstream's `docs/WINDOWS.md` calls a
@@ -328,6 +347,6 @@ revisions, build flags, context, concurrency and measurement method.
 ## Related projects
 
 - [TensorFold upstream](https://github.com/ashhart/TensorFold) and the
-  [Windows build documentation](https://github.com/TheJeff/TensorFold/blob/win-arm64/v1.2.6/docs/WINDOWS.md)
+  [Windows build documentation](https://github.com/TheJeff/TensorFold/blob/win-arm64/v1.2.7/docs/WINDOWS.md)
 - [Windows ARM64 TensorFold fork](https://github.com/TheJeff/TensorFold) (see its `FORK.md` for branch history)
 - [Nemotron 3.5 Bolt recipe](https://github.com/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark) (see `docs/windows.md`)

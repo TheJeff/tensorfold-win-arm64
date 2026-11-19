@@ -45,6 +45,38 @@ def photo(w, h):
     return np.clip(base + noise, 0, 255).astype(np.uint8)
 
 
+def document_pdf():
+    """A minimal one-page PDF whose facts exist only if PDFium rendered it: the
+    printed word PDFIUM-OK plus a green and a magenta block. Hand-assembled (no
+    PDF library dependency) with byte-exact xref offsets, so it is deterministic."""
+    stream = (
+        b"0 0.8 0 rg\n72 540 200 100 re f\n"
+        b"0.9 0 0.9 rg\n320 540 200 100 re f\n"
+        b"0 0 0 rg\nBT /F1 36 Tf 72 700 Td (PDFIUM-OK) Tj ET\n"
+    )
+    objs = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+        b"<< /Length " + str(len(stream)).encode() + b" >>\nstream\n" + stream + b"endstream",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for i, body in enumerate(objs, 1):
+        offsets.append(len(out))
+        out += f"{i} 0 obj\n".encode() + body + b"\nendobj\n"
+    xref = len(out)
+    out += f"xref\n0 {len(objs) + 1}\n".encode()
+    out += b"0000000000 65535 f \n"
+    for off in offsets:
+        out += f"{off:010d} 00000 n \n".encode()
+    out += (f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\n"
+            f"startxref\n{xref}\n%%EOF\n").encode()
+    return bytes(out)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fixtures", default=os.path.join(HERE, "fixtures"))
@@ -79,6 +111,16 @@ def main():
     p = os.path.join(args.fixtures, "corrupt.webp")
     open(p, "wb").write(b"RIFF\x00\x00\x00\x00WEBPVP8 ")
     print(f"  {os.path.getsize(p):>8,}  corrupt.webp  (WebPGetInfo must reject)")
+
+    # PDF fixtures for the --vision-pdf path: the tower can only read the printed
+    # word if PDFium really rendered the page; corrupt.pdf is a truncated copy.
+    doc = document_pdf()
+    p = os.path.join(args.fixtures, "document.pdf")
+    open(p, "wb").write(doc)
+    print(f"  {os.path.getsize(p):>8,}  document.pdf  (PDFIUM-OK text + green/magenta blocks)")
+    p = os.path.join(args.fixtures, "corrupt.pdf")
+    open(p, "wb").write(doc[: int(len(doc) * 0.6)])
+    print(f"  {os.path.getsize(p):>8,}  corrupt.pdf  (truncated: PDFium must refuse)")
     print("done")
 
 
