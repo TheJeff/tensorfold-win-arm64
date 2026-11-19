@@ -55,6 +55,25 @@ pub const Catalog = struct {
 
 pub const config_rel = "gui/models.json";
 
+/// The engine binary from gui/models.json's "exe" field, when it names a file that
+/// exists; otherwise the caller's default. The field used to be write-only (save()
+/// recorded it while main.zig hard-coded the path), so an engine swap silently kept
+/// launching the old install. Reading it makes the swap a JSON edit -- the same
+/// serve-command-as-data design the argv template already follows.
+pub fn configuredExe(io: std.Io, a: std.mem.Allocator, root: []const u8, default: []const u8) []const u8 {
+    var dir = std.Io.Dir.openDirAbsolute(io, root, .{}) catch return default;
+    defer dir.close(io);
+    const cfg = readJson(a, io, dir, config_rel) orelse return default;
+    const exe = strOf(objGet(cfg, "exe"));
+    if (exe.len == 0) return default;
+    const parent = std.fs.path.dirname(exe) orelse return default;
+    const base = std.fs.path.basename(exe);
+    var ed = std.Io.Dir.openDirAbsolute(io, parent, .{}) catch return default;
+    defer ed.close(io);
+    _ = ed.statFile(io, base, .{}) catch return default;
+    return a.dupe(u8, exe) catch default;
+}
+
 /// Directory holding this GUI's own exe. serve.json beside the exe wins over the one in
 /// gui/, which keeps the launch command editable even from a build tree that is not a
 /// checkout -- the exe is the thing you actually run, so its neighbourhood is where you

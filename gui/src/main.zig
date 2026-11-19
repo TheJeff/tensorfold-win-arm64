@@ -286,7 +286,8 @@ pub fn main(init: std.process.Init) !void {
     // GUI's decisions instead of hardcoding a second copy that can drift.
     if (plan_index) |idx| {
         const proot = findRoot(a, io, init.environ_map);
-        const pexe = std.fmt.allocPrint(a, "{s}/tensorfold/zig-out-v126/native/bin/tensorfold-native.exe", .{proot}) catch return;
+        const pexe_default = std.fmt.allocPrint(a, "{s}/tensorfold/zig-out-v127/native/bin/tensorfold-native.exe", .{proot}) catch return;
+        const pexe = models.configuredExe(io, a, proot, pexe_default);
         const pcat = models.load(io, a, proot, pexe, init.environ_map);
         if (idx >= pcat.models.len) {
             std.debug.print("no model {d}: the catalog has {d}\n", .{ idx, pcat.models.len });
@@ -323,7 +324,8 @@ pub fn main(init: std.process.Init) !void {
     if (w.GdiplusStartup(&g_token, &input, null) != 0) return error.Gdiplus;
 
     const root = findRoot(a, io, init.environ_map);
-    const exe = std.fmt.allocPrint(a, "{s}/tensorfold/zig-out-v126/native/bin/tensorfold-native.exe", .{root}) catch "";
+    const exe_default = std.fmt.allocPrint(a, "{s}/tensorfold/zig-out-v127/native/bin/tensorfold-native.exe", .{root}) catch "";
+    const exe = models.configuredExe(io, a, root, exe_default);
     var app = try app_mod.App.init(init.gpa, io, root, exe, init.environ_map);
     // what the binary on disk is, so the header can name it before anything is served
     app.engine_version = serve.engineVersion(io, init.gpa, exe, root, init.environ_map);
