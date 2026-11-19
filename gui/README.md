@@ -38,6 +38,7 @@ older icon (and `LoadImage` fails with error 126).
 tensorfold-gui.exe                  # window; auto-attaches to a configured port that answers
 tensorfold-gui.exe --attach 8082    # monitor a server this GUI did not start
 tensorfold-gui.exe --load 0         # load model index 0 on startup
+tensorfold-gui.exe --plan 2 --plan-out plan.txt  # the command model 2 would run; no window, no GPU
 tensorfold-gui.exe --shot out.bmp   # headless render of the dashboard to BMP (dev aid)
 tensorfold-gui.exe --skin militech  # start with a skin (also applies to --shot)
 tensorfold-gui.exe --settings       # open the appearance overlay on startup
@@ -97,8 +98,7 @@ token, so `tensorfold-native 1.2.6` becomes `1.2.6`.
   different context, parallelism, environment variables or arguments. The provided values
   assume substantial available CUDA memory and are not appropriate for every GPU.
 
-**LOAD** spawns `tensorfold-native.exe serve <dir> --name … --host 127.0.0.1
---port … --parallel … --context … --prompt-cache-gib … --dashboard --metrics-open`
+**LOAD** spawns the command built from the `gui/serve.json` template (see below),
 with stdout/stderr redirected to `logs/gui-<model>-<ms>.log`. **UNLOAD** terminates
 that process. Before spawning, the GUI probes the port; if something already
 answers `/health` it refuses to load instead of spending 30 s and then dying on
@@ -109,6 +109,28 @@ listening port instead (`GetExtendedTcpTable` in `src/tcp.zig`), checks the imag
 name is `tensorfold-native` and only then terminates it — an unrelated program on
 that port is left alone, and the status line says "detached — that server keeps
 running" when it cannot stop it.
+
+## The launch command is data — `gui/serve.json`
+
+The serve command line is a JSON template, not Zig: `gui/serve.json` holds an `argv`
+list with `{dir} {name} {port} {parallel} {context} {cache_gib} {root}` placeholders
+and `{extra_args}`, which expands to the model's own extra args. Adding an engine
+flag is an edit to that file, not a GUI rebuild. Resolution order:
+`TENSORFOLD_GUI_SERVE_JSON` → `serve.json` beside the exe → `gui/serve.json` →
+`serve.json` at the repo root → the built-in default (written out on first run).
+A model may also carry its own whole `argv` in `gui/models.json` — that is how the
+spliced vision checkpoint gets `--vision` while its text-only sibling does not.
+The plan panel's FLAGS row is derived from the argv that will actually be spawned
+and names the template file in force.
+
+- **Both files are read when the GUI starts.** Editing them and restarting only the
+  server leaves a stale catalog in memory — restart the GUI (or Reload) as well.
+- `--plan <n> --plan-out <file>` writes the exact command without opening a window
+  or touching the GPU; it is how you prove an edit took effect.
+- FlashNext CUDA caps `--vision-image-tokens` at **4096** (`qwen_cuda_media.zig`
+  `checkLimits`); the CLI accepts more, but an over-cap value aborts the entire load
+  with `BadImageLimits`. Images also need a bf16 vision tower — see NEXT-STEPS.md,
+  "How to make images work here".
 
 ## Telemetry
 

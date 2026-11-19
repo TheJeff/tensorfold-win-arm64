@@ -41,7 +41,7 @@ if not exist "%DL%" mkdir "%DL%"
 
 echo === source ===
 if not exist "%TARBALL%" (
-  curl.exe -sSL -o "%TARBALL%" "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-%WEBP_VER%.tar.gz"
+  curl.exe -fsSL -o "%TARBALL%" "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-%WEBP_VER%.tar.gz"
   if errorlevel 1 (
     echo DOWNLOAD FAILED
     exit /b 1

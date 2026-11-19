@@ -29,6 +29,10 @@ zig-out/
 .acl-recovery/
 .analysis/
 
+# vision-probe.py used to re-encode fixtures beside them; sends are raw now, but
+# keep any leftover artifacts out of the committed fixture set.
+tests/engine/fixtures/*.probe.*
+
 # ---- runtime output ---------------------------------------------------------
 logs/
 *.log

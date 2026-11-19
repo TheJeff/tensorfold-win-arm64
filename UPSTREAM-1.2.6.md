@@ -95,7 +95,7 @@ Unknowns a build has to settle (no prebuilt to fall back on). Status as of 2026-
 3. **Partly closed.** `turbojpeg.dll` and `libwebpdecoder.dll` are now built here and byte-exact
    against Pillow (`build-jpeg.bat`, `build-webp.bat`); `tfvideo` and PDFium are still missing. What
    actually blocks image serving is no longer the decoders but the checkpoints: the served Qwen's
-   vision tower is FP8 while `families/radio/weights.zig` accepts only bf16, and the Bolt checkpoint
+   vision tower is quantised while `vision/qwen_cuda_weights.zig` accepts only bf16, and the Bolt checkpoint
    ships no visual tensors at all — see `NEXT-STEPS.md`.
 4. ~~`libbolt` is pinned to the recipe's `bolt-recipe/` submodule (`6b064a31`); re-check it against the
    new lane/round loop~~ **Closed** — `6b064a31` (2026-11-01) *is* the recipe's latest commit, so the

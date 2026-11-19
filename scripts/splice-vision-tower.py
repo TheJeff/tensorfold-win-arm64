@@ -16,7 +16,7 @@ ever modifying the original directory:
   * every file is hardlinked into the output directory, so the 95 GiB checkpoint costs
     no extra space and takes seconds rather than a copy
   * the single shard holding model.visual.* (model-00015-of-00021.safetensors, 4.6 GiB,
-    75,242 tensors, most of them the 20M-entry ngram PLE tables) is rewritten. Its
+    75,241 tensors, most of them the 20M-entry ngram PLE tables) is rewritten. Its
     non-visual tensors are NOT re-serialized: the original data section is copied
     verbatim and their header offsets are reused unchanged, so byte-identity is true by
     construction rather than by comparison. The 499 quantized visual tensors are dropped
@@ -56,7 +56,7 @@ _HDR_LEN = {}
 
 
 def header_len(path):
-    """Cached: a shard header here holds 75,242 entries, so parsing it per tensor is fatal."""
+    """Cached: a shard header here holds 75,241 entries, so parsing it per tensor is fatal."""
     n = _HDR_LEN.get(path)
     if n is None:
         with open(path, "rb") as f:
@@ -187,7 +187,7 @@ def build():
 
     # --- rewrite the tower shard -----------------------------------------------------
     # Reuse the original data section byte for byte. Kept tensors keep their offsets, so
-    # the 74,743 non-visual tensors cannot drift; only the header changes, plus appended
+    # the 74,742 non-visual tensors cannot drift; only the header changes, plus appended
     # bf16 tower bytes at the end.
     src_shard = os.path.join(SRC, target.replace("/", os.sep))
     sh, sn = read_header(src_shard)
@@ -330,7 +330,7 @@ def verify():
 
     print("\n== the rewritten shard did not disturb its neighbours")
     # Compute the tower-bearing shard once. Scanning shard headers per weight_map entry
-    # would be 375,487 passes over a 75,242-key dict and never finish.
+    # would be 375,487 passes over a 75,241-key dict and never finish.
     target = sorted(rel for rel, hh in shard_headers.items()
                     if any(k.startswith(PREFIX) for k in hh))[0]
     oh, _ = read_header(os.path.join(SRC, target.replace("/", os.sep)))

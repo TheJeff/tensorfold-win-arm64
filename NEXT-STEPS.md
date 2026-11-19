@@ -108,8 +108,9 @@ reports per-library status, and this is the authoritative check:
 libjpeg-turbo    soname=turbojpeg.dll        found:true   usable:true    problem:null
 ```
 
-`usable` is the real gate, not `found`: the grammar entry is `found:true, usable:null`, and libwebp is
-`found:false, usable:false`. JPEG is currently the only optional decoder reporting `usable:true`.
+`usable` is the real gate, not `found`: the grammar entry is `found:true, usable:null`. libwebp
+reported `found:false, usable:false` until `TENSORFOLD_LIBWEBP` was set (Item 2); with it, both
+decoders report `usable:true` (re-verified 2026-11-18 by `verify-engine.ps1 -Tier Probes`).
 The same command is the fastest way to check any of the other three, and it needs no GPU work.
 
 **The vision path's other dependency is already satisfied.** `--vision` on CUDA needs cuBLASLt for the
@@ -263,6 +264,9 @@ required, and the decoders were never the whole story:
    `core/picture/webp.zig:20` has no Windows branch.
 2. **`--vision` on the serve command** — from the model's `extra_args` in `gui/models.json`, spliced
    onto the template in `gui/serve.json`. Both are read when the GUI **starts**.
+   Keep `--vision-image-tokens` at **4096 or below**: FlashNext CUDA's `checkLimits`
+   (`vision/qwen_cuda_media.zig`) aborts the whole load above it (`BadImageLimits`) even though the
+   CLI accepts up to 262144 — a profile set to 16384 killed every LOAD until it was corrected.
 3. **A checkpoint whose vision tower is bf16** — the one that was missing, and the reason `--vision`
    on the stock checkpoint aborts the entire load instead of degrading gracefully:
 
@@ -356,14 +360,14 @@ of failures, so it drops into a script.
 .\tests\engine\verify-engine.ps1 -Exe C:\...\zig-out-main\native\bin\tensorfold-native.exe -Tier All
 ```
 
-Three tiers, cheapest first:
+Four tiers, cheapest first:
 
 | Tier | Cost | What it proves |
 | --- | --- | --- |
 | `Probes` | ~2 s, no GPU | the binary answers, `capabilities --json` parses, chip is `nvidia-sm121`, cuda backend present, every optional library is where expected, and all 15 serve flags the launchers depend on still exist |
 | `Decode` | ~5 s, no GPU | `pixel-parity.py`: the built decoders reproduce Pillow's pixels **byte for byte** |
-| `Serve` | minutes, GPU | boots a model, proves JPEG and WebP survive the vision tower into a reply, and that bad input is **refused** |
-| `Vision` | ~20 s, no GPU | `vision-probe.py` against a server that is already up (`-Attach`): five facts that exist **only in the pixels**, an image-vs-text prompt-token delta, both decoders, and broken input refused |
+| `Vision` | ~20 s, no GPU | `vision-probe.py` against a server that is already up (`-Attach`): five facts that exist **only in the pixels**, an image-vs-text prompt-token delta, both decoders fed raw bytes, and broken input refused with 400 |
+| `Serve` | minutes, GPU | boots a model, proves JPEG and WebP survive the vision tower into a reply, and that bad input is **refused**; holds the system awake while it runs |
 
 Three design points worth keeping:
 
@@ -385,9 +389,17 @@ Three design points worth keeping:
   was identified. Positive and negative calls both disable thinking, and the failure text now prints
   `reasoning_content` too, so this cannot masquerade as an image defect again.
 
-`Serve` includes the negative cases, because silently accepting these is a real defect rather than a
-curiosity: `truncated.jpg` (no EOI — `jpeg.zig:158` must refuse), `cmyk.jpg` (4 components —
-`jpeg.zig:157`), `corrupt.webp` (`WebPGetInfo` must reject).
+**Run the Serve tier on AC power.** The gate holds `SetThreadExecutionState`
+(ES_SYSTEM_REQUIRED|ES_DISPLAY_REQUIRED) while it boots and probes, because an idle-timeout Modern
+Standby entry mid-load bugchecks this box: on 2026-11-18 the display-power watchdog in NVIDIA 621.24
+timed out during a vision load and the whole machine rebooted (0x19C WIN32K_POWER_WATCHDOG_TIMEOUT,
+Kernel-Power 41 with `ConnectedStandbyInProgress=true`). The keep-awake call blocks the idle path;
+AC keeps the DC 5-minute display timeout out of the picture as well.
+
+`Serve` includes the negative cases, because silently accepting these is a real defect rather than
+a curiosity: `truncated.jpg` (no EOI — `jpeg.zig:158` must refuse), `cmyk.jpg` (4 components —
+`jpeg.zig:157`), `corrupt.webp` (`WebPGetInfo` must reject). A refusal only counts at **HTTP 400** —
+a 500 or a timeout means the decoder crashed or the server died, which is a failure, not a pass.
 
 Regenerate the fixtures with `python tests\engine\make-fixtures.py`. They are deterministic
 (fixed seed, odd dimensions, both chroma subsampling ratios, lossy and lossless WebP) so the checked-in

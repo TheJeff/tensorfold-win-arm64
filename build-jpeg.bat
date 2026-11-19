@@ -39,7 +39,7 @@ if not exist "%DL%" mkdir "%DL%"
 
 echo === source ===
 if not exist "%TARBALL%" (
-  curl.exe -sSL -o "%TARBALL%" "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/%TJ_VER%.tar.gz"
+  curl.exe -fsSL -o "%TARBALL%" "https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/%TJ_VER%.tar.gz"
   if errorlevel 1 (
     echo DOWNLOAD FAILED
     exit /b 1

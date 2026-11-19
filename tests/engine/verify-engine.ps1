@@ -7,7 +7,7 @@
   It never touches a running server: point -Exe at a fresh tree and it checks that
   tree only.
 
-  Three tiers, cheapest first:
+  Four tiers, cheapest first:
 
     Probes  (~2 s, no GPU)   binary answers, capabilities --json parses, the chip and
                              backend are right, every optional library is where we
@@ -15,13 +15,15 @@
     Decode  (~5 s, no GPU)   pixel-parity.py: the built decoders reproduce Pillow's
                              pixels byte for byte. This is what the version pins in
                              zig/src/core/picture exist to guarantee.
-    Serve   (minutes, GPU)   boots a model and proves images survive the vision
-                             tower into a reply, plus the negative cases: a JPEG with
-                             no end marker and a CMYK JPEG must both be refused.
     Vision  (~20 s, no GPU)  ground-truth reading against a server that is already up:
                              five facts that exist only in the pixels, an image-vs-text
                              prompt-token delta, both decoders, and broken input
                              refused. Attached-only -- it never boots anything.
+    Serve   (minutes, GPU)   boots a model and proves images survive the vision
+                             tower into a reply, plus the negative cases: a JPEG with
+                             no end marker and a CMYK JPEG must both be refused.
+                             Holds the system awake while it runs (Modern Standby
+                             mid-load bugchecks this box -- see NEXT-STEPS.md).
 
   FAILs are things that should stop a promotion. WARNs are known-absent optional
   pieces (video and PDF are not built) and do not fail the run.
@@ -30,7 +32,8 @@
   Path to tensorfold-native.exe. Defaults to the installed 1.2.6 tree.
 
 .PARAMETER Model
-  Model directory to boot for -Tier Serve. Defaults to the Qwen3.8 Flash Next tree.
+  Model directory to boot for -Tier Serve. Defaults to the spliced bf16-tower tree;
+  the stock FP4-Local aborts the whole load when --vision is forced on it.
 
 .EXAMPLE
   .\verify-engine.ps1
@@ -50,7 +53,7 @@
 [CmdletBinding()]
 param(
     [string] $Exe = 'C:\Projects\tensorfold-win-arm64\tensorfold\zig-out-v126\native\bin\tensorfold-native.exe',
-    [string] $Model = 'C:\Projects\tensorfold-win-arm64\models\Qwen3.8-Flash-Next-FP4-Local',
+    [string] $Model = 'C:\Projects\tensorfold-win-arm64\models\Qwen3.8-Flash-Next-FP4-Local-vision',
     [string] $Name = 'verify-engine',
     [int]    $Port = 8099,
     [ValidateSet('Probes', 'Decode', 'Serve', 'Vision', 'All')] [string] $Tier = 'Probes',
@@ -62,6 +65,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Keep the box awake while a model loads or a probe runs: an idle-timeout Modern
+# Standby entry mid-load bugchecks this machine (0x19C WIN32K_POWER_WATCHDOG_TIMEOUT,
+# the NVIDIA display-power watchdog -- observed 2026-11-18). Run on AC as well.
+Add-Type -Namespace Win32 -Name Power -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(int esFlags);
+'@
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $fixtures = Join-Path $PSScriptRoot 'fixtures'
 $logdir = Join-Path $root 'logs'
@@ -179,7 +188,9 @@ if ($Tier -in 'Decode', 'All') {
     if (-not (Test-Path $Python)) { Warn 'python for pixel-parity' "$Python not found -- skipping" }
     elseif (-not (Test-Path (Join-Path $PSScriptRoot 'pixel-parity.py'))) { Fail 'pixel-parity.py present' }
     else {
-        & $Python -u (Join-Path $PSScriptRoot 'pixel-parity.py') --libdir $libdir --fixtures $fixtures
+        # -I isolates the interpreter from ambient PYTHONPATH: a foreign venv's broken
+        # PIL otherwise hijacks the import and fails the tier for a non-engine reason.
+        & $Python -I -u (Join-Path $PSScriptRoot 'pixel-parity.py') --libdir $libdir --fixtures $fixtures
         if ($LASTEXITCODE -eq 0) { Pass 'pixel parity' $libdir }
         else { Fail 'pixel parity' "exit $LASTEXITCODE" }
     }
@@ -257,7 +268,7 @@ if ($Tier -in 'Serve', 'Vision', 'All') {
         Get-Content $log -Tail 25 -ErrorAction SilentlyContinue | ForEach-Object { "  $_" }
         Write-Host "  --- last 25 stderr lines ---" -ForegroundColor DarkGray
         Get-Content $errlog -Tail 25 -ErrorAction SilentlyContinue | ForEach-Object { "  $_" }
-        return $fails
+        exit $fails
     }
         Pass 'server became ready' ("{0}s" -f (2 * $i))
         $launched = $true
@@ -288,6 +299,10 @@ if ($Tier -in 'Serve', 'Vision', 'All') {
     }
 
     try {
+        # Hold the system and display awake for the whole assertion run (see Add-Type
+        # above). Inside the try so any fault still reaches the finally's cleanup.
+        # int, not uint: PowerShell wraps 0x80000003 to a negative Int32 literal.
+        [Win32.Power]::SetThreadExecutionState(0x80000003) | Out-Null
         # A thinking model spends the budget on reasoning first, so content can come
         # back empty while the text is in reasoning_content. Assert against either.
         $r = Chat 'Reply with exactly the word READY.' 64
@@ -340,7 +355,12 @@ if ($Tier -in 'Serve', 'Vision', 'All') {
                 $r = Chat (ImageContent $path $neg.mime 'Describe this.') 32 $NoThink
                 Fail "$($neg.file) refused ($($neg.why))" ('accepted, said: ' + [string]$r.choices[0].message.content)
             } catch {
-                Pass "$($neg.file) refused ($($neg.why))" ($_.Exception.Message -replace '\s+', ' ')
+                # Only HTTP 400 counts as a refusal: a 500 or a timeout would mean the
+                # decoder crashed or the server died -- a defect, not a pass.
+                $sc = 0
+                if ($_.Exception.Response) { $sc = [int]$_.Exception.Response.StatusCode }
+                if ($sc -eq 400) { Pass "$($neg.file) refused ($($neg.why))" 'HTTP 400' }
+                else { Fail "$($neg.file) refused with 400 ($($neg.why))" ("HTTP $sc " + ($_.Exception.Message -replace '\s+', ' ')) }
             }
         }
         # Ground truth. Fluent prose proves nothing -- a model that ignored the image
@@ -352,12 +372,13 @@ if ($Tier -in 'Serve', 'Vision', 'All') {
         elseif (-not (Test-Path $Python)) { Warn 'python for vision-probe' "$Python not found -- skipping" }
         elseif (-not $imagesWorked) { Warn 'vision probe' 'skipped -- no valid image decoded' }
         else {
-            & $Python -u $probe --url $baseUrl --fixtures $fixtures `
+            & $Python -I -u $probe --url $baseUrl --fixtures $fixtures `
                 --card-out (Join-Path $logdir 'vision-card.png')
             if ($LASTEXITCODE -eq 0) { Pass 'vision probe (ground truth)' '5 facts, token delta, 3 refusals' }
             else { Fail 'vision probe (ground truth)' "exit $LASTEXITCODE -- see the lines above" }
         }
     } finally {
+        [Win32.Power]::SetThreadExecutionState(0x80000000) | Out-Null
         if (-not $launched) { Write-Host '  attached server left running (we did not start it)' -ForegroundColor DarkGray }
         elseif ($KeepServing) { Write-Host "  left running on :$Port (pid $($p.Id))" -ForegroundColor Yellow }
         elseif (-not $p.HasExited) { Stop-Process -Id $p.Id -Force; Write-Host '  server stopped' -ForegroundColor DarkGray }

@@ -126,22 +126,16 @@ def post(url, content, max_tokens=400):
     return r, 200, text
 
 
-def image_part(path, mime, raw=False):
-    """Send a file. raw=True sends the bytes exactly as stored.
+def image_part(path, mime):
+    """Send the file's bytes exactly as stored -- never re-encode through Pillow.
 
-    Negative fixtures MUST use raw=True. Pillow happily opens a CMYK JPEG and happily
-    turns it into RGB, so re-encoding the CMYK fixture silently destroys the very
-    property under test and the engine then correctly accepts the image -- a false
-    result that reads like a decoder regression. Verified once the hard way.
+    Re-encoding destroys the property under test for negatives (Pillow happily turns
+    a CMYK JPEG into RGB, and the engine then correctly accepts it -- a false result
+    that reads like a decoder regression), and for positives it would feed the tower
+    a PNG instead of exercising the server's JPEG/WebP decoders at all. It also used
+    to litter fixtures/ with .probe.png artifacts. Every send is raw.
     """
     data = open(path, "rb").read()
-    if not raw:
-        im = Image.open(path)
-        if max(im.size) > 1024:
-            im.thumbnail((1024, 1024), Image.LANCZOS)
-        tmp = path + ".probe.png"
-        im.convert("RGB").save(tmp)
-        data = open(tmp, "rb").read()
     return {"type": "image_url", "image_url": {"url": "data:%s;base64,%s" % (mime, base64.b64encode(data).decode())}}
 
 
@@ -252,11 +246,13 @@ def main():
             warn("%s refused (%s)" % (f, why), "not assessed -- nothing valid decoded, so a 400 only proves vision is off")
             continue
         before = open(p, "rb").read()
-        _, code, body = post(a.url, [image_part(p, mime, raw=True), {"type": "text", "text": "Describe this."}], 32)
+        _, code, body = post(a.url, [image_part(p, mime), {"type": "text", "text": "Describe this."}], 32)
         if open(p, "rb").read() != before:  # guards against a future edit re-encoding this
             bad("%s sent unmodified" % f, "fixture bytes changed in transit")
         if code == 200:
             bad("%s refused (%s)" % (f, why), "accepted, said: " + (body or "")[:80])
+        elif code != 400:
+            bad("%s refused with 400 (%s)" % (f, why), "HTTP %s -- a crash or timeout is not a refusal" % code)
         elif needle and needle not in body.lower():
             bad("%s refused for the right reason" % f, 'expected %r in: %s' % (needle, body[:120]))
         else:
