@@ -5,6 +5,19 @@
 or a double-clickable `.bat` and talk to an OpenAI-compatible `/v1` API on localhost.
 **No WSL, no Docker, no Linux recipe to port.**
 
+**Built on other people's work, credited up front:** the engine is
+[TensorFold](https://github.com/ashhart/TensorFold) by **Ash Hart and the TensorFold contributors** —
+this repo is a Windows ARM64 port of their Zig engine, and upstream's Apache-2.0 license and NOTICE
+travel with the `tensorfold/` submodule. The Flash-Next features shipped here (quantised vision
+towers, fp8 KV, 16k image budgets, the MXFP8 prompt tile, video wiring) are
+**[MiaAI-Lab](https://github.com/MiaAI-Lab)**'s patches from their
+[single-DGX-Spark recipe](https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold),
+applied unmodified under MIT with the license kept beside them (`local-patches/mia-v1.2.7/`); the
+Bolt backend comes from their
+[Nemotron 3.5 Bolt recipe](https://github.com/MiaAI-Lab/Nemotron-3.5-Bolt-TensorFold-DGX-Spark).
+What this repo adds is the port itself: the Windows ARM64 build, the native GUI, the locally built
+decoders, and the gate and benchmarks that verify them.
+
 This is the author's daily-driver inference stack on that hardware, and the reason this repo exists.
 NVIDIA's DGX Spark recipes — TensorFold's and llama.cpp's alike — assume Linux/Docker; on a Windows
 laptop that road goes through WSL2 with unified-memory budget bugs and 9p weight-loading traps.
